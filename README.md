@@ -89,6 +89,16 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m uvicorn aml_memory.app:app --host 0.0.0.0 --port 8000
 ```
 
+Open <http://127.0.0.1:8000/demo> for the **Memory Playground**. It provides a
+score-free guided story that writes memories across sessions, retrieves the
+original evidence, and lets you switch users to see isolation directly. The
+page calls the same Add/Search endpoints used by the evaluation contract; it
+does not use a separate demo store or generate prepared answers.
+
+Use the default `MEMORY_AUTH_SCHEME=none` for this local browser experience.
+"Start fresh" creates a new user namespace and leaves existing persisted data
+untouched.
+
 Run the real HTTP smoke test in another terminal:
 
 ```powershell

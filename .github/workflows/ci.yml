@@ -56,6 +56,11 @@ jobs:
             fi
             sleep 1
           done
+      - name: Verify Memory Playground
+        shell: bash
+        run: |
+          curl --fail --silent http://127.0.0.1:18080/demo \
+            | grep --fixed-strings 'id="load-story"'
       - name: Run evaluation preflight
         run: aml-eval-preflight --base-url http://127.0.0.1:18080
       - name: Stop candidate

@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse
 
 from aml_memory.auth import ApiKeyAuthenticator
 from aml_memory.config import Settings
@@ -18,6 +19,7 @@ from aml_memory.service import MemoryService
 from aml_memory.store import MemoryStore
 
 logger = logging.getLogger("aml_memory")
+DEMO_PAGE = Path(__file__).with_name("demo.html")
 
 
 def create_app(
@@ -57,6 +59,14 @@ def create_app(
     def health() -> dict[str, str]:
         store.check()
         return {"status": "ok"}
+
+    @app.get("/demo", include_in_schema=False)
+    def demo() -> FileResponse:
+        return FileResponse(
+            DEMO_PAGE,
+            media_type="text/html",
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.post(
         "/add",
