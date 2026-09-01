@@ -7,8 +7,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 
+from aml_memory.auth import ApiKeyAuthenticator
 from aml_memory.config import Settings
 from aml_memory.errors import RequestConflictError
 from aml_memory.retrieval import LexicalRetrievalPipeline
@@ -23,6 +24,8 @@ def create_app(
     *,
     database_path: str | Path | None = None,
     neighbor_radius: int | None = None,
+    auth_scheme: str | None = None,
+    api_key: str | None = None,
 ) -> FastAPI:
     """Build an application with injectable filesystem configuration."""
 
@@ -32,10 +35,13 @@ def create_app(
         neighbor_radius=(
             neighbor_radius if neighbor_radius is not None else settings.neighbor_radius
         ),
+        auth_scheme=auth_scheme if auth_scheme is not None else settings.auth_scheme,
+        api_key=api_key if api_key is not None else settings.api_key,
     )
     store = MemoryStore(settings.database_path)
     retrieval = LexicalRetrievalPipeline(store, neighbor_radius=settings.neighbor_radius)
     service = MemoryService(store, retrieval)
+    authenticate = ApiKeyAuthenticator(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -52,8 +58,17 @@ def create_app(
         store.check()
         return {"status": "ok"}
 
-    @app.post("/add", response_model=AddResponse, include_in_schema=False)
-    @app.post("/v1/memories/add", response_model=AddResponse)
+    @app.post(
+        "/add",
+        response_model=AddResponse,
+        include_in_schema=False,
+        dependencies=[Depends(authenticate)],
+    )
+    @app.post(
+        "/v1/memories/add",
+        response_model=AddResponse,
+        dependencies=[Depends(authenticate)],
+    )
     def add_memory(request: AddRequest) -> AddResponse:
         try:
             response = service.add(request)
@@ -76,11 +91,13 @@ def create_app(
         response_model=SearchResponse,
         response_model_exclude_none=True,
         include_in_schema=False,
+        dependencies=[Depends(authenticate)],
     )
     @app.post(
         "/v1/memories/search",
         response_model=SearchResponse,
         response_model_exclude_none=True,
+        dependencies=[Depends(authenticate)],
     )
     def search_memory(request: SearchRequest) -> SearchResponse:
         response = service.search(request)

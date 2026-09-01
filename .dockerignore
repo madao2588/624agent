@@ -1,4 +1,5 @@
 .git
+.github
 .omx
 .env
 .env.*
@@ -15,4 +16,6 @@ __pycache__
 data
 dist
 docs
+evaluation
+scripts
 tests

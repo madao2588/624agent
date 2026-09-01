@@ -1,5 +1,7 @@
 # AML Memory Candidate
 
+[![CI](https://github.com/madao2588/624agent/actions/workflows/ci.yml/badge.svg)](https://github.com/madao2588/624agent/actions/workflows/ci.yml)
+
 A reproducible, evidence-first Add/Search memory service for the Agent Memory
 Leaderboard Academic Textual Memory track.
 
@@ -102,14 +104,74 @@ docker run --rm -p 8000:8000 -v aml-memory-data:/data aml-memory-v1
 
 The image runs as a non-root user and stores SQLite data at `/data/memory.db`.
 
+## Leaderboard evaluation preflight
+
+This repository follows the **Academic Methods / Textual Memory / Code
+Submission** route. Maintainers can build the public repository with Docker and
+call the official synchronous Add/Search contract. No Leaderboard Eval Key is
+required for the code-submission route.
+
+Run the black-box contract preflight against a live service:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\eval_preflight.py `
+  --base-url http://127.0.0.1:8000 `
+  --add-concurrency 16 `
+  --search-concurrency 32
+```
+
+The installed command is equivalent:
+
+```powershell
+.\.venv\Scripts\aml-eval-preflight.exe --base-url http://127.0.0.1:8000
+```
+
+The preflight checks unauthenticated Health, exact Add ID echoes, synchronous
+visibility, idempotency, options-assisted Search, Top K, stable ordering,
+cross-user isolation, and concurrent Add/Search. It prints only stage counts
+and timings.
+
+A local preflight pass is compatibility evidence, **not an official leaderboard
+score**. The platform owns Answer, Eval, result review, and publication. The
+prepared submission notes are in [`evaluation/SUBMISSION.md`](evaluation/SUBMISSION.md).
+
 ## Configuration
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `MEMORY_DB_PATH` | `data/memory.db` | SQLite database path |
 | `MEMORY_NEIGHBOR_RADIUS` | `1` | Same-session messages on each side of a hit |
+| `MEMORY_AUTH_SCHEME` | `none` | `none`, `token`, `bearer`, or `x-api-key` |
+| `MEMORY_API_KEY` | unset | Required when authentication is enabled |
 
-No external model or API key is required for V1.
+Health remains public when API authentication is enabled. Add/Search and their
+compatibility aliases require the configured credential. Secrets are read only
+from environment variables and are never accepted as preflight CLI values.
+The `none` default is intended for local development and public compatibility
+smoke only. A formal deployment should enable the authentication scheme bound
+in the evaluation request.
+
+Example authenticated container:
+
+```powershell
+$env:MEMORY_API_KEY = "replace-with-a-generated-secret"
+docker run --rm -p 8000:8000 `
+  -e MEMORY_AUTH_SCHEME=bearer `
+  -e MEMORY_API_KEY `
+  -v aml-memory-data:/data `
+  aml-memory-v1
+```
+
+Run the authenticated preflight without placing the key in shell history:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\eval_preflight.py `
+  --base-url http://127.0.0.1:8000 `
+  --auth-scheme bearer `
+  --api-key-env MEMORY_API_KEY
+```
+
+No external model key is required for the current lexical implementation.
 
 ## Verification
 
@@ -123,15 +185,16 @@ No external model or API key is required for V1.
 The regression suite covers API validation, synchronous visibility,
 idempotency conflicts, strict user isolation, special FTS input, context
 expansion, timestamp fidelity, concurrent retries, restart recovery, and log
-payload safety.
+payload safety. GitHub Actions repeats these checks, builds the Docker image,
+starts an ephemeral container, and runs the complete evaluation preflight.
 
 ## Current boundary and next version
 
 V1 is a reliable lexical baseline, not a claim of leaderboard competitiveness.
 The next version will add a pluggable OpenAI-compatible embedding adapter,
 durable vectors, Dense + BM25 Reciprocal Rank Fusion, and end-to-end regression
-against the leaderboard's public evaluation pipelines. Raw source messages will
-remain the only returned evidence.
+against the leaderboard contract. Raw source messages will remain the only
+returned evidence.
 
 The approved design and implementation plan are kept under
 `docs/superpowers/`.

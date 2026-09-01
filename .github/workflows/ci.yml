@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install development dependencies
+        run: python -m pip install ".[dev]"
+      - name: Ruff
+        run: ruff check .
+      - name: Mypy
+        run: mypy src
+      - name: Pytest
+        run: pytest -q
+      - name: Compile
+        run: python -m compileall -q src tests scripts
+
+  container-preflight:
+    needs: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install preflight command
+        run: python -m pip install .
+      - name: Build image
+        run: docker build -t aml-memory-eval:ci .
+      - name: Start candidate
+        run: docker run -d --name aml-memory-eval-ci -p 18080:8000 aml-memory-eval:ci
+      - name: Wait for Health
+        shell: bash
+        run: |
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:18080/health >/dev/null; then
+              exit 0
+            fi
+            if [[ "$attempt" == "30" ]]; then
+              docker logs aml-memory-eval-ci
+              exit 1
+            fi
+            sleep 1
+          done
+      - name: Run evaluation preflight
+        run: aml-eval-preflight --base-url http://127.0.0.1:18080
+      - name: Stop candidate
+        if: always()
+        run: docker rm --force aml-memory-eval-ci >/dev/null 2>&1 || true
