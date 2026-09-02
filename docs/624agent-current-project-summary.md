@@ -2,11 +2,13 @@
 
 更新日期：2026-09-02
 
-当前阶段：候选实现已提交并推送，尚未冻结为正式参评版本
+当前阶段：候选实现已完成公开数据全量证据评测，尚未冻结为正式参评版本
 
 ## 先说结论
 
 624agent 已经不是“靠冒号或固定符号触发搜索”的原型了。它现在是一个证据优先的单人多轮记忆服务：写入原始对话，建立词法、结构化状态和关系索引，再按自然语言问题找回同一用户的原始消息。没有可靠证据时返回空结果，不替评测系统编答案。
+
+现在也终于有了一份能说明真实水平的公开数据结果：LongMemEval-S 全量 500 条记录已跑完，470 条有证据标注的问题中，Session Recall-any@5 为 **75.96%**，Turn Recall-all@5 为 **34.47%**。前者说明多数问题能先找到正确会话，后者说明要找齐回答所需的每一条消息仍不够强，尤其是 assistant 侧事实、偏好归纳和多会话问题。
 
 这轮原定的核心开发已经完成：
 
@@ -14,9 +16,10 @@
 - 固定 `gpt-4o-mini` 的 evaluation 模式，Add 和 Search 都有受约束的模型调用；
 - 更新、取消、恢复、遗忘、偏好、规则和三跳关系检索；
 - 召回原因、状态时间线和关系图的可解释界面；
+- 官方 LongMemEval-S 格式适配、逐题证据映射和检索指标报告；
 - 最大并发黑盒预检、CI、秘密扫描和提交说明。
 
-目前剩下的不是主体功能，而是正式参评动作和外部条件：真实模型凭证、评测资格与参赛者身份信息。本机 Docker Desktop 仍有运行时故障，但同一提交的 GitHub CI 已完成干净镜像构建和容器预检。
+目前服务主体和可复现评测入口已经具备，但真实基准暴露了两个代码内短板：语义弱重合问题的候选召回，以及跨会话多证据找全。外部仍需要真实模型凭证、评测资格与参赛者身份信息。本机 Docker Desktop 仍有运行时故障，但此前同一实现的 GitHub CI 已完成干净镜像构建和容器预检。
 
 ## 系统实际怎么工作
 
@@ -109,22 +112,27 @@ evaluation 模式会先让固定的 `gpt-4o-mini` 生成有限的检索词；模
 
 | 检查 | 结果 |
 | --- | --- |
-| `python -m pytest -q` | 166 passed，12.42 秒 |
+| `python -m pytest -q` | 178 passed |
 | `python -m ruff check .` | 通过 |
-| `python -m mypy src` | 22 个源码文件无类型错误 |
+| `python -m mypy src scripts` | 29 个源码文件无类型错误 |
 | `python -m compileall -q src tests scripts` | 通过 |
 | `python scripts/scan_secrets.py` | 通过 |
 | `python scripts/run_memory_challenges.py` | 20 组场景全部符合预期 |
 | 本地 Recall@K / MRR / nDCG | 1.000 / 1.000 / 1.000 |
 | 本地噪声率 / 空结果准确率 | 0.040 / 1.000 |
 | 本地平均 / P95 搜索延迟 | 13.82 ms / 17.76 ms |
+| LongMemEval-S 全量语料 | 500 条完成；470 条检索计分，30 条 abstention 跳过 |
+| LongMemEval-S Session any@5 / all@5 | 75.96% / 58.51% |
+| LongMemEval-S Turn any@5 / all@5 | 56.81% / 34.47% |
+| LongMemEval-S Turn nDCG@5 | 39.82% |
+| LongMemEval-S 搜索平均 / P95 延迟 | 166.72 ms / 336.40 ms |
 | 黑盒预检 | 6 项、328 次操作全部通过 |
 | 并发 Add | 64 次，2106 ms |
 | 并发 Search | 256 次，7134 ms |
 | 浏览器验收 | 桌面与 375px 手机流程通过，控制台 0 错误，无横向溢出 |
 | GitHub CI | 提交 `25ffd59` 的质量检查、镜像构建和容器预检全部通过 |
 
-这些本地指标只用于防回归，不是官方榜单成绩，也不能预测私有测试集表现。
+20 组自建场景的满分只用于防回归。LongMemEval-S 是公开语料上的来源检索结果，但没有运行 answer reader 或 LLM judge，因此同样不是官方榜单成绩，也不能预测私有测试集表现。完整方法、分项和限制见 [`longmemeval-s-results.md`](longmemeval-s-results.md)。
 
 ## 怎么运行
 
@@ -139,6 +147,8 @@ python -m venv .venv
 ```powershell
 .\.venv\Scripts\python.exe scripts\run_memory_challenges.py
 ```
+
+公开 LongMemEval-S 的分层冒烟和全量运行方式见 [`longmemeval-s-results.md`](longmemeval-s-results.md)。数据文件约 277 MB，不进入 Git；运行器会把逐题证据、汇总 JSON 和 Markdown 报告写入 `artifacts/longmemeval/`。
 
 完整检查：
 
@@ -156,7 +166,10 @@ python -m venv .venv
 
 ### 代码内待办
 
-主体功能、本地验证、diff 审查、GitNexus 变更检测和 GitHub 推送均已完成。固定实现提交为 `25ffd5921371a0faa318251478e1d3d7ac76165e`；后续代码改动应重新冻结提交号并重跑完整验证。
+1. **语义候选召回**：优先解决 preference 和 assistant fact。当前 Turn all@5 分别只有 23.33% 和 25.00%。
+2. **多证据聚合**：优先解决 multi-session。它的 Session any@5 已有 89.26%，但 Turn all@5 只有 19.01%，说明经常找到了正确会话却没找齐证据。
+3. **Reader/Judge 分层**：在检索指标稳定后，再单独评测最终答案和 abstention；不能把生成质量与来源召回混成一个本地分数。
+4. **重新冻结提交**：本轮 LongMemEval 适配完成验证和推送后，以新提交为参评候选，不再沿用旧的 `25ffd59`。
 
 ### 外部阻塞
 
@@ -170,8 +183,9 @@ python -m venv .venv
 - [x] 结构化状态、偏好、规则、安全过滤和三跳关系
 - [x] 固定 evaluation 模式的 Add/Search 模型接线
 - [x] 诊断接口、状态时间线、关系图和响应式页面
-- [x] 166 项测试、静态检查、秘密扫描和本地 64/256 黑盒预检
+- [x] 178 项测试、静态检查、秘密扫描和本地 64/256 黑盒预检
 - [x] GitHub CI 冷构建镜像并完成容器内预检
+- [x] LongMemEval-S 500 条公开语料完成来源检索评测
 - [ ] 真实 `gpt-4o-mini` 冒烟
 - [ ] 填写联系人和团队信息
 - [x] 实现提交并推送到 GitHub `main`
@@ -184,4 +198,6 @@ python -m venv .venv
 - 参评说明：[`../evaluation/SUBMISSION.md`](../evaluation/SUBMISSION.md)
 - 固定评测配置：[`../evaluation/evaluation-profile.json`](../evaluation/evaluation-profile.json)
 - 20 组可读场景：[`../evaluation/memory_challenges.json`](../evaluation/memory_challenges.json)
+- LongMemEval-S 全量结果：[`longmemeval-s-results.md`](longmemeval-s-results.md)
+- LongMemEval-S 运行器：[`../scripts/run_longmemeval.py`](../scripts/run_longmemeval.py)
 - 完成路线：[`superpowers/plans/2026-09-02-roadmap-completion-implementation.md`](superpowers/plans/2026-09-02-roadmap-completion-implementation.md)

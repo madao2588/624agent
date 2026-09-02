@@ -1,0 +1,56 @@
+[
+  {
+    "question_id": "tiny-single-user",
+    "question_type": "single-session-user",
+    "question": "What is the name of Riley's dog?",
+    "answer": "Pixel",
+    "question_date": "2023/05/04 (Thu) 09:00",
+    "haystack_session_ids": ["filler-session", "evidence-session"],
+    "haystack_dates": [
+      "2023/05/01 (Mon) 10:30",
+      "2023/05/03 (Wed) 18:45"
+    ],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "Riley planted rosemary on the balcony."
+        },
+        {
+          "role": "assistant",
+          "content": "Rosemary likes bright light."
+        }
+      ],
+      [
+        {
+          "role": "user",
+          "content": "Riley adopted a dog named Pixel.",
+          "has_answer": true
+        },
+        {
+          "role": "assistant",
+          "content": "Pixel is a greyhound."
+        }
+      ]
+    ],
+    "answer_session_ids": ["evidence-session"]
+  },
+  {
+    "question_id": "tiny-unknown_abs",
+    "question_type": "single-session-user",
+    "question": "What color is Riley's car?",
+    "answer": "I don't know",
+    "question_date": "2023/05/04 (Thu) 09:00",
+    "haystack_session_ids": ["garden-session"],
+    "haystack_dates": ["2023/05/02 (Tue) 12:00"],
+    "haystack_sessions": [
+      [
+        {
+          "role": "user",
+          "content": "Riley planted basil in a blue ceramic pot."
+        }
+      ]
+    ],
+    "answer_session_ids": []
+  }
+]

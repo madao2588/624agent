@@ -465,6 +465,85 @@ class MemoryStore:
 
         return AddResult(inserted=True, message_ids=message_ids)
 
+    def add_benchmark_lexical(self, request: AddRequest) -> AddResult:
+        """Persist raw benchmark sources without building facets or relations.
+
+        This path exists for large retrieval-only benchmark replays. Production
+        API writes must continue to use :meth:`add` so memory governance,
+        structured recall, and relation expansion stay enabled.
+        """
+
+        digest = _payload_hash(request)
+        message_ids = tuple(
+            _message_id(request.request_id, ordinal)
+            for ordinal, _message in enumerate(request.messages)
+        )
+        with self._connect() as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                existing = connection.execute(
+                    "SELECT payload_hash FROM add_requests WHERE request_id = ?",
+                    (request.request_id,),
+                ).fetchone()
+                if existing is not None:
+                    if str(existing["payload_hash"]) != digest:
+                        raise RequestConflictError(
+                            f"request_id {request.request_id!r} already has a different payload"
+                        )
+                    connection.commit()
+                    return AddResult(inserted=False, message_ids=message_ids)
+
+                created_at = _utc_now_text()
+                connection.execute(
+                    """
+                    INSERT INTO add_requests(
+                        request_id, payload_hash, user_id, session_id, created_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        request.request_id,
+                        digest,
+                        request.user_id,
+                        request.session_id,
+                        created_at,
+                    ),
+                )
+                for ordinal, message in enumerate(request.messages):
+                    memory_id = message_ids[ordinal]
+                    connection.execute(
+                        """
+                        INSERT INTO messages(
+                            id, request_id, user_id, session_id, ordinal, role,
+                            occurred_at_ms, content, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            memory_id,
+                            request.request_id,
+                            request.user_id,
+                            request.session_id,
+                            ordinal,
+                            message.role,
+                            message.timestamp,
+                            message.content,
+                            created_at,
+                        ),
+                    )
+                    connection.execute(
+                        "INSERT INTO messages_fts(message_id, user_id, content) "
+                        "VALUES (?, ?, ?)",
+                        (
+                            memory_id,
+                            request.user_id,
+                            lexical_index_text(message.content),
+                        ),
+                    )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return AddResult(inserted=True, message_ids=message_ids)
+
     @staticmethod
     def _backfill_lexical_index(connection: sqlite3.Connection) -> None:
         migration_key = "messages_fts_lexical_terms_v2"

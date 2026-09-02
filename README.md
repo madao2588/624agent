@@ -195,6 +195,58 @@ benchmark score.
 The cases live in [`evaluation/memory_challenges.json`](evaluation/memory_challenges.json)
 and can be replaced with another compatible file using `--cases`.
 
+### Public LongMemEval-S evidence evaluation
+
+For a reproducible test on a public long-conversation corpus, download the
+official cleaned LongMemEval-S file (about 277 MB) and run the checked-in
+adapter. The dataset is intentionally not committed to this repository.
+
+```powershell
+New-Item -ItemType Directory -Force artifacts\longmemeval\data | Out-Null
+Invoke-WebRequest `
+  -Uri "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json?download=true" `
+  -OutFile artifacts\longmemeval\data\longmemeval_s_cleaned.json
+
+# Quick stratified run: the first five records from each question type.
+.\.venv\Scripts\python.exe scripts\run_longmemeval.py `
+  --data artifacts\longmemeval\data\longmemeval_s_cleaned.json `
+  --output-dir artifacts\longmemeval\stratified-30 `
+  --cutoffs 1,5,10 `
+  --per-type-limit 5
+
+# Full 500-question corpus. Retrieval metrics exclude the 30 abstention cases.
+.\.venv\Scripts\python.exe scripts\run_longmemeval.py `
+  --data artifacts\longmemeval\data\longmemeval_s_cleaned.json `
+  --output-dir artifacts\longmemeval\full-500 `
+  --cutoffs 1,5,10
+```
+
+Each run writes one inspectable JSONL record per question plus `summary.json`
+and `report.md`. The report contains session- and turn-level Recall-any,
+Recall-all, and nDCG, including breakdowns for all six question types. It also
+records the dataset SHA-256, filters, ingestion mode, and the fact that no
+answer reader or LLM judge was used. Each question requests the contract's
+`top_k=100`; @1, @5, and @10 are prefixes of that one ordered result.
+
+The runner indexes both user and assistant source turns because the service's
+Add contract stores both roles and 51 cleaned non-abstention cases have gold
+evidence only on assistant turns. The older upstream retrieval helper indexes
+user turns only and omits those cases, so treat this report as the service's
+all-role evidence protocol rather than a directly comparable upstream BM25
+baseline.
+
+The default `benchmark-lexical` ingestion mode preserves the official raw
+message, session, timestamp, and answer-turn mapping while indexing only the
+source text needed for BM25 retrieval. It deliberately skips production facet,
+state, and relation enrichment so hundreds of isolated histories can be
+replayed in minutes. Use `--ingestion-mode full` on a bounded selection when
+you specifically want to exercise the complete Add enrichment path.
+
+This is still a **local labelled-source retrieval evaluation, not an official
+leaderboard score**: it does not generate answers, call the benchmark's reader
+model, or run an LLM judge. The current reproducible results and limitations are
+documented in [`docs/longmemeval-s-results.md`](docs/longmemeval-s-results.md).
+
 Explicit updates and source-backed structured event changes can create durable
 state relations when the new and prior messages share strong anchors. Current
 queries prefer active or resumed evidence; history queries retain the auditable
