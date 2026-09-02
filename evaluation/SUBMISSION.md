@@ -8,7 +8,7 @@ access request.
 
 - System name: AML Memory Candidate
 - Version: 0.1.0 evaluation-preflight baseline
-- Fixed Git commit: `TODO(before submission): insert immutable commit SHA`
+- Fixed implementation commit: `25ffd5921371a0faa318251478e1d3d7ac76165e`
 - Repository: <https://github.com/madao2588/624agent>
 - Contact: `TODO(before submission)`
 - Team / affiliation: `TODO(before submission)`
@@ -21,9 +21,10 @@ access request.
 - Local contract preflight: implemented
 - Latest host preflight: passed 64 concurrent Add and 256 concurrent Search
 - Latest regression suite: 166 tests passed
-- Repository CI: implemented
-- Local Docker build: blocked by the host Docker Desktop runtime; CI remains the
-  clean container verification path
+- Repository CI: passed for implementation commit `25ffd5921371a0faa318251478e1d3d7ac76165e`
+- Public repository: implementation commit pushed to `main`
+- Local Docker build: blocked by the host Docker Desktop runtime; GitHub CI
+  completed the clean image build and container preflight successfully
 - Live fixed-model smoke: not run; requires the participant's OpenAI credential
 - Platform smoke: not run; requires an accepted evaluation request
 - Official full evaluation: not run
