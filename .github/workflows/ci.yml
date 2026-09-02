@@ -27,6 +27,8 @@ jobs:
         run: pytest -q
       - name: Compile
         run: python -m compileall -q src tests scripts
+      - name: Secret scan
+        run: python scripts/scan_secrets.py
 
   container-preflight:
     needs: quality
@@ -60,9 +62,11 @@ jobs:
         shell: bash
         run: |
           curl --fail --silent http://127.0.0.1:18080/demo \
-            | grep --fixed-strings 'id="load-story"'
+            | grep --fixed-strings 'id="load-conversation"'
       - name: Run evaluation preflight
-        run: aml-eval-preflight --base-url http://127.0.0.1:18080
+        run: >-
+          aml-eval-preflight --base-url http://127.0.0.1:18080
+          --add-concurrency 64 --search-concurrency 256
       - name: Stop candidate
         if: always()
         run: docker rm --force aml-memory-eval-ci >/dev/null 2>&1 || true

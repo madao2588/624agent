@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "model": "gpt-4o-mini",
+  "add_enrichment": true,
+  "search_planning": true,
+  "external_failure": "fail-closed",
+  "graph_hops": 3,
+  "lexical_candidate_limit": 400,
+  "facet_candidate_limit": 200,
+  "relevance_threshold": 0.18,
+  "provider_timeout_seconds": 30.0,
+  "provider_max_attempts": 2,
+  "circuit_failure_threshold": 3,
+  "circuit_cooldown_seconds": 30.0
+}

@@ -1,0 +1,1941 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Agent Memory Leaderboard 应试系统重点、难点、目标架构与开发路线的一页式视觉简报。">
+  <title>Agent Memory 应试系统 · 视觉路线图</title>
+  <style>
+    :root {
+      --bg: #08111f;
+      --bg-soft: #0f172a;
+      --surface: #131f33;
+      --surface-raised: #19283e;
+      --surface-soft: #203149;
+      --ink: #f8fafc;
+      --muted: #a7b4c8;
+      --faint: #72819a;
+      --line: #33465f;
+      --line-strong: #536987;
+      --green: #4ade80;
+      --green-deep: #166534;
+      --blue: #7dd3fc;
+      --amber: #fbbf24;
+      --rose: #fda4af;
+      --violet: #c4b5fd;
+      --cyan: #67e8f9;
+      --radius-xl: 28px;
+      --radius-lg: 20px;
+      --radius-md: 14px;
+      --shadow: 0 28px 90px rgb(0 0 0 / 34%);
+      --max: 1180px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      min-width: 320px;
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% 2%, rgb(74 222 128 / 14%), transparent 31rem),
+        radial-gradient(circle at 96% 10%, rgb(125 211 252 / 11%), transparent 31rem),
+        radial-gradient(circle at 48% 56%, rgb(196 181 253 / 6%), transparent 42rem),
+        linear-gradient(165deg, #07101d, var(--bg-soft) 52%, var(--bg));
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", "Microsoft YaHei", sans-serif;
+      font-size: 16px;
+      line-height: 1.65;
+    }
+
+    a {
+      color: inherit;
+    }
+
+    button,
+    a {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    :focus-visible {
+      outline: 3px solid var(--blue);
+      outline-offset: 3px;
+    }
+
+    .skip-link {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 30;
+      padding: 10px 14px;
+      color: #052e16;
+      background: var(--green);
+      border-radius: 10px;
+      transform: translateY(-160%);
+      transition: transform 160ms ease-out;
+    }
+
+    .skip-link:focus {
+      transform: translateY(0);
+    }
+
+    .shell {
+      width: min(var(--max), calc(100% - 32px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 66px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 44px;
+      height: 44px;
+      flex: 0 0 44px;
+      place-items: center;
+      color: var(--green);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: inset 0 1px rgb(255 255 255 / 6%);
+    }
+
+    .brand-mark svg {
+      width: 24px;
+      height: 24px;
+    }
+
+    .brand-copy strong,
+    .brand-copy span {
+      display: block;
+    }
+
+    .brand-copy strong {
+      font-size: 0.9rem;
+      letter-spacing: 0.05em;
+    }
+
+    .brand-copy span {
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 0.76rem;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .top-link {
+      display: inline-flex;
+      min-height: 38px;
+      align-items: center;
+      justify-content: center;
+      padding: 7px 13px;
+      color: var(--muted);
+      background: rgb(19 31 51 / 78%);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-decoration: none;
+      transition: 160ms ease-out;
+    }
+
+    .top-link:hover {
+      color: var(--ink);
+      border-color: var(--line-strong);
+      transform: translateY(-1px);
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(290px, 0.65fr);
+      align-items: end;
+      gap: 46px;
+      margin-bottom: 28px;
+    }
+
+    .eyebrow {
+      margin: 0 0 13px;
+      color: var(--green);
+      font-size: 0.76rem;
+      font-weight: 800;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      max-width: 830px;
+      margin-bottom: 20px;
+      font-size: clamp(2.55rem, 6.8vw, 5.4rem);
+      line-height: 0.99;
+      letter-spacing: -0.052em;
+    }
+
+    .hero-copy {
+      max-width: 760px;
+      margin-bottom: 0;
+      color: var(--muted);
+      font-size: clamp(1rem, 2vw, 1.2rem);
+    }
+
+    .verdict {
+      position: relative;
+      overflow: hidden;
+      padding: 24px;
+      background:
+        linear-gradient(145deg, rgb(30 64 47 / 84%), rgb(19 31 51 / 96%));
+      border: 1px solid rgb(74 222 128 / 35%);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+    }
+
+    .verdict::after {
+      position: absolute;
+      right: -48px;
+      bottom: -62px;
+      width: 180px;
+      height: 180px;
+      background: radial-gradient(circle, rgb(74 222 128 / 18%), transparent 68%);
+      content: "";
+    }
+
+    .verdict-label {
+      display: block;
+      margin-bottom: 10px;
+      color: var(--green);
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .verdict strong {
+      display: block;
+      position: relative;
+      z-index: 1;
+      margin-bottom: 9px;
+      font-size: 1.18rem;
+      line-height: 1.35;
+    }
+
+    .verdict p {
+      position: relative;
+      z-index: 1;
+      margin-bottom: 0;
+      color: #c8d7ce;
+      font-size: 0.92rem;
+    }
+
+    .fact-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 82px;
+    }
+
+    .fact {
+      padding: 18px 19px;
+      background: rgb(19 31 51 / 84%);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      box-shadow: inset 0 1px rgb(255 255 255 / 4%);
+    }
+
+    .fact strong,
+    .fact span {
+      display: block;
+    }
+
+    .fact strong {
+      margin-bottom: 3px;
+      color: var(--ink);
+      font-size: 1.18rem;
+    }
+
+    .fact span {
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    .section {
+      margin-top: 92px;
+      scroll-margin-top: 24px;
+    }
+
+    .section-heading {
+      display: grid;
+      grid-template-columns: minmax(0, 0.8fr) minmax(280px, 0.7fr);
+      align-items: end;
+      gap: 32px;
+      margin-bottom: 26px;
+    }
+
+    .section-index {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 9px;
+      color: var(--green);
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+
+    .section-index::before {
+      width: 26px;
+      height: 1px;
+      background: currentColor;
+      content: "";
+    }
+
+    h2 {
+      margin-bottom: 0;
+      font-size: clamp(1.75rem, 4vw, 3rem);
+      line-height: 1.08;
+      letter-spacing: -0.035em;
+    }
+
+    .section-intro {
+      margin-bottom: 0;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .panel {
+      background: linear-gradient(165deg, rgb(25 40 62 / 97%), rgb(15 27 45 / 97%));
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow);
+    }
+
+    .boundary {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 112px minmax(0, 0.82fr);
+      align-items: stretch;
+      overflow: hidden;
+    }
+
+    .boundary-side {
+      padding: 30px;
+    }
+
+    .boundary-side h3 {
+      margin-bottom: 7px;
+      font-size: 1.26rem;
+    }
+
+    .boundary-side > p {
+      margin-bottom: 22px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .owner-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 13px;
+      padding: 5px 10px;
+      color: var(--green);
+      background: rgb(74 222 128 / 9%);
+      border: 1px solid rgb(74 222 128 / 23%);
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 800;
+    }
+
+    .owner-badge.platform {
+      color: var(--blue);
+      background: rgb(125 211 252 / 8%);
+      border-color: rgb(125 211 252 / 24%);
+    }
+
+    .boundary-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .boundary-item {
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr);
+      align-items: center;
+      gap: 11px;
+      padding: 11px 12px;
+      background: rgb(255 255 255 / 3%);
+      border: 1px solid rgb(255 255 255 / 5%);
+      border-radius: 12px;
+    }
+
+    .boundary-icon {
+      display: grid;
+      width: 34px;
+      height: 34px;
+      place-items: center;
+      color: var(--green);
+      background: rgb(74 222 128 / 10%);
+      border-radius: 10px;
+      font-size: 0.77rem;
+      font-weight: 900;
+    }
+
+    .platform-side .boundary-icon {
+      color: var(--blue);
+      background: rgb(125 211 252 / 9%);
+    }
+
+    .boundary-item strong,
+    .boundary-item span {
+      display: block;
+    }
+
+    .boundary-item strong {
+      font-size: 0.9rem;
+    }
+
+    .boundary-item span {
+      color: var(--muted);
+      font-size: 0.76rem;
+    }
+
+    .evidence-bridge {
+      display: grid;
+      position: relative;
+      place-items: center;
+      padding: 18px 8px;
+      background: rgb(4 12 24 / 52%);
+      border-right: 1px solid var(--line);
+      border-left: 1px solid var(--line);
+    }
+
+    .bridge-line {
+      position: absolute;
+      top: 50%;
+      right: 14px;
+      left: 14px;
+      height: 2px;
+      background: linear-gradient(90deg, var(--green), var(--blue));
+    }
+
+    .bridge-line::after {
+      position: absolute;
+      top: -5px;
+      right: -1px;
+      width: 10px;
+      height: 10px;
+      border-top: 2px solid var(--blue);
+      border-right: 2px solid var(--blue);
+      content: "";
+      transform: rotate(45deg);
+    }
+
+    .bridge-label {
+      position: relative;
+      z-index: 1;
+      padding: 6px 8px;
+      color: #d7fbe3;
+      background: #13283a;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-size: 0.68rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-align: center;
+      text-transform: uppercase;
+    }
+
+    .rule-band {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      overflow: hidden;
+      margin-top: 16px;
+      background: var(--line);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+    }
+
+    .rule {
+      min-height: 128px;
+      padding: 20px;
+      background: var(--surface);
+    }
+
+    .rule-code {
+      display: block;
+      margin-bottom: 10px;
+      color: var(--green);
+      font-size: 0.72rem;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+    }
+
+    .rule strong {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 0.92rem;
+    }
+
+    .rule span {
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+
+    .comparison {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 74px minmax(0, 1fr);
+      align-items: stretch;
+      gap: 0;
+    }
+
+    .state-card {
+      padding: 28px;
+    }
+
+    .state-card.current {
+      background: linear-gradient(150deg, rgb(73 45 21 / 30%), transparent 70%);
+    }
+
+    .state-card.target {
+      background: linear-gradient(150deg, rgb(22 101 52 / 26%), transparent 70%);
+    }
+
+    .state-kicker {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .state-kicker span:first-child {
+      font-size: 0.75rem;
+      font-weight: 850;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .current .state-kicker span:first-child {
+      color: var(--amber);
+    }
+
+    .target .state-kicker span:first-child {
+      color: var(--green);
+    }
+
+    .status-pill {
+      padding: 4px 8px;
+      color: var(--muted);
+      background: rgb(255 255 255 / 4%);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      font-size: 0.66rem;
+      font-weight: 700;
+    }
+
+    .state-card h3 {
+      margin-bottom: 8px;
+      font-size: 1.42rem;
+      line-height: 1.25;
+    }
+
+    .state-card > p {
+      margin-bottom: 21px;
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+
+    .stack {
+      display: grid;
+      gap: 8px;
+    }
+
+    .stack-layer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 44px;
+      padding: 10px 13px;
+      background: rgb(255 255 255 / 3%);
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      font-size: 0.82rem;
+      font-weight: 750;
+    }
+
+    .stack-layer small {
+      color: var(--muted);
+      font-size: 0.7rem;
+      font-weight: 600;
+    }
+
+    .stack-layer.locked {
+      color: #d9ffe5;
+      background: rgb(74 222 128 / 8%);
+      border-color: rgb(74 222 128 / 24%);
+    }
+
+    .transform-arrow {
+      display: grid;
+      place-items: center;
+      color: var(--green);
+      background: rgb(4 12 24 / 48%);
+      border-right: 1px solid var(--line);
+      border-left: 1px solid var(--line);
+    }
+
+    .transform-arrow span {
+      font-size: 1.7rem;
+      transform: translateX(-2px);
+    }
+
+    .benchmark-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .benchmark-tab {
+      min-width: 0;
+      padding: 14px 10px;
+      color: var(--muted);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      font: inherit;
+      font-size: 0.72rem;
+      font-weight: 780;
+      line-height: 1.25;
+      text-align: left;
+      transition: 160ms ease-out;
+    }
+
+    .benchmark-tab:hover,
+    .benchmark-tab[aria-pressed="true"] {
+      color: var(--ink);
+      background: var(--surface-soft);
+      border-color: var(--line-strong);
+      transform: translateY(-2px);
+    }
+
+    .benchmark-tab[aria-pressed="true"] {
+      box-shadow: inset 0 -3px var(--green);
+    }
+
+    .benchmark-stage {
+      display: grid;
+      grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr);
+      gap: 0;
+      min-height: 284px;
+      overflow: hidden;
+    }
+
+    .benchmark-profile {
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 30px;
+      background:
+        radial-gradient(circle at 14% 16%, rgb(74 222 128 / 12%), transparent 18rem),
+        rgb(14 26 43 / 66%);
+      border-right: 1px solid var(--line);
+    }
+
+    .benchmark-profile h3 {
+      margin-bottom: 9px;
+      font-size: clamp(1.45rem, 3vw, 2rem);
+    }
+
+    .benchmark-profile p {
+      max-width: 480px;
+      margin-bottom: 18px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .profile-tag {
+      display: inline-flex;
+      width: fit-content;
+      margin-bottom: 14px;
+      padding: 5px 9px;
+      color: var(--green);
+      background: rgb(74 222 128 / 8%);
+      border: 1px solid rgb(74 222 128 / 22%);
+      border-radius: 999px;
+      font-size: 0.67rem;
+      font-weight: 850;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .profile-link {
+      display: inline-flex;
+      width: fit-content;
+      align-items: center;
+      gap: 6px;
+      color: var(--blue);
+      font-size: 0.78rem;
+      font-weight: 750;
+      text-decoration: none;
+    }
+
+    .profile-link:hover {
+      text-decoration: underline;
+    }
+
+    .ability-map {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 11px;
+      padding: 30px;
+    }
+
+    .ability {
+      display: grid;
+      grid-template-columns: 36px minmax(0, 1fr);
+      align-items: center;
+      gap: 10px;
+      min-height: 64px;
+      padding: 10px 12px;
+      color: var(--faint);
+      background: rgb(255 255 255 / 2%);
+      border: 1px solid rgb(255 255 255 / 4%);
+      border-radius: 12px;
+      transition: 160ms ease-out;
+    }
+
+    .ability[data-active="true"] {
+      color: var(--ink);
+      background: rgb(125 211 252 / 7%);
+      border-color: rgb(125 211 252 / 20%);
+    }
+
+    .ability-glyph {
+      display: grid;
+      width: 36px;
+      height: 36px;
+      place-items: center;
+      color: inherit;
+      background: rgb(255 255 255 / 4%);
+      border-radius: 10px;
+      font-size: 0.76rem;
+      font-weight: 900;
+    }
+
+    .ability strong,
+    .ability span {
+      display: block;
+    }
+
+    .ability strong {
+      font-size: 0.82rem;
+    }
+
+    .ability span {
+      color: var(--muted);
+      font-size: 0.69rem;
+    }
+
+    .matrix-wrap {
+      overflow-x: auto;
+      margin-top: 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+    }
+
+    .matrix {
+      width: 100%;
+      min-width: 820px;
+      border-collapse: collapse;
+      background: rgb(15 27 45 / 80%);
+      font-size: 0.77rem;
+    }
+
+    .matrix th,
+    .matrix td {
+      padding: 12px 10px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      text-align: center;
+    }
+
+    .matrix th:first-child,
+    .matrix td:first-child {
+      position: sticky;
+      left: 0;
+      z-index: 1;
+      min-width: 164px;
+      background: #142238;
+      text-align: left;
+    }
+
+    .matrix thead th {
+      color: var(--muted);
+      background: #142238;
+      font-size: 0.69rem;
+      letter-spacing: 0.02em;
+    }
+
+    .matrix tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .matrix th:last-child,
+    .matrix td:last-child {
+      border-right: 0;
+    }
+
+    .dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      background: var(--line);
+      border-radius: 50%;
+    }
+
+    .dot.major {
+      background: var(--green);
+      box-shadow: 0 0 0 4px rgb(74 222 128 / 9%);
+    }
+
+    .dot.secondary {
+      background: var(--blue);
+      opacity: 0.62;
+    }
+
+    .matrix-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 0.72rem;
+    }
+
+    .matrix-legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .challenge-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .challenge-card {
+      min-height: 244px;
+      padding: 23px;
+      background: linear-gradient(160deg, rgb(25 40 62 / 94%), rgb(15 27 45 / 94%));
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      transition: 180ms ease-out;
+    }
+
+    .challenge-card:hover {
+      border-color: var(--line-strong);
+      transform: translateY(-3px);
+    }
+
+    .challenge-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .challenge-number {
+      display: grid;
+      width: 38px;
+      height: 38px;
+      place-items: center;
+      color: #07111f;
+      background: var(--green);
+      border-radius: 12px;
+      font-size: 0.78rem;
+      font-weight: 950;
+    }
+
+    .challenge-risk {
+      color: var(--rose);
+      font-size: 0.66rem;
+      font-weight: 850;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .challenge-card h3 {
+      margin-bottom: 8px;
+      font-size: 1.08rem;
+    }
+
+    .challenge-card p {
+      margin-bottom: 18px;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .challenge-answer {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding-top: 14px;
+      color: #d4fbe0;
+      border-top: 1px solid var(--line);
+      font-size: 0.76rem;
+      font-weight: 700;
+    }
+
+    .challenge-answer::before {
+      flex: 0 0 auto;
+      color: var(--green);
+      content: "→";
+    }
+
+    .architecture {
+      overflow: hidden;
+    }
+
+    .arch-row {
+      display: grid;
+      grid-template-columns: 144px minmax(0, 1fr);
+      min-height: 216px;
+    }
+
+    .arch-row + .arch-row {
+      border-top: 1px solid var(--line);
+    }
+
+    .arch-label {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 24px;
+      background: rgb(4 12 24 / 42%);
+      border-right: 1px solid var(--line);
+    }
+
+    .arch-label strong {
+      margin-bottom: 5px;
+      color: var(--green);
+      font-size: 1.25rem;
+    }
+
+    .arch-label span {
+      color: var(--muted);
+      font-size: 0.72rem;
+    }
+
+    .arch-flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(112px, 1fr));
+      align-items: center;
+      gap: 24px;
+      padding: 28px;
+      overflow-x: auto;
+    }
+
+    .arch-node {
+      display: grid;
+      position: relative;
+      min-height: 124px;
+      align-content: center;
+      padding: 15px;
+      background: rgb(255 255 255 / 3%);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+    }
+
+    .arch-node:not(:last-child)::after {
+      position: absolute;
+      top: 50%;
+      right: -18px;
+      color: var(--line-strong);
+      content: "→";
+      font-size: 1.05rem;
+      transform: translateY(-50%);
+    }
+
+    .arch-node.primary {
+      background: rgb(74 222 128 / 7%);
+      border-color: rgb(74 222 128 / 25%);
+    }
+
+    .arch-node.evidence {
+      background: rgb(125 211 252 / 7%);
+      border-color: rgb(125 211 252 / 24%);
+    }
+
+    .arch-node code {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--green);
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 0.66rem;
+      font-weight: 850;
+    }
+
+    .arch-node strong {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 0.86rem;
+    }
+
+    .arch-node span {
+      color: var(--muted);
+      font-size: 0.68rem;
+      line-height: 1.45;
+    }
+
+    .search-retrievers {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-top: 7px;
+    }
+
+    .search-retrievers b {
+      padding: 3px 6px;
+      color: var(--blue);
+      background: rgb(125 211 252 / 7%);
+      border: 1px solid rgb(125 211 252 / 15%);
+      border-radius: 6px;
+      font-size: 0.58rem;
+      font-weight: 800;
+    }
+
+    .truth-rail {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 18px;
+      margin-top: 16px;
+      padding: 20px 24px;
+      color: #d9ffe5;
+      background: rgb(74 222 128 / 7%);
+      border: 1px solid rgb(74 222 128 / 22%);
+      border-radius: var(--radius-lg);
+      font-size: 0.82rem;
+    }
+
+    .truth-rail strong {
+      display: block;
+      margin-bottom: 3px;
+    }
+
+    .truth-rail span {
+      color: #b8ccbF;
+      font-size: 0.72rem;
+    }
+
+    .truth-lock {
+      display: grid;
+      width: 44px;
+      height: 44px;
+      place-items: center;
+      color: var(--green);
+      background: rgb(74 222 128 / 9%);
+      border: 1px solid rgb(74 222 128 / 22%);
+      border-radius: 14px;
+    }
+
+    .truth-lock svg {
+      width: 22px;
+      height: 22px;
+    }
+
+    .roadmap {
+      position: relative;
+      padding: 30px;
+    }
+
+    .roadmap::before {
+      position: absolute;
+      top: 54px;
+      bottom: 54px;
+      left: 59px;
+      width: 2px;
+      background: linear-gradient(var(--green), var(--blue), var(--violet));
+      content: "";
+      opacity: 0.42;
+    }
+
+    .phase {
+      display: grid;
+      position: relative;
+      grid-template-columns: 58px minmax(0, 1fr) minmax(210px, 0.45fr);
+      align-items: center;
+      gap: 20px;
+      padding: 16px 0;
+    }
+
+    .phase + .phase {
+      border-top: 1px solid rgb(51 70 95 / 70%);
+    }
+
+    .phase-number {
+      display: grid;
+      position: relative;
+      z-index: 1;
+      width: 58px;
+      height: 58px;
+      place-items: center;
+      color: #06111f;
+      background: var(--green);
+      border: 7px solid #17243a;
+      border-radius: 50%;
+      font-size: 0.8rem;
+      font-weight: 950;
+    }
+
+    .phase:nth-child(4) .phase-number,
+    .phase:nth-child(5) .phase-number {
+      background: var(--blue);
+    }
+
+    .phase:nth-child(6) .phase-number,
+    .phase:nth-child(7) .phase-number {
+      background: var(--violet);
+    }
+
+    .phase-copy h3 {
+      margin-bottom: 5px;
+      font-size: 1rem;
+    }
+
+    .phase-copy p {
+      margin-bottom: 0;
+      color: var(--muted);
+      font-size: 0.78rem;
+    }
+
+    .phase-proof {
+      padding: 11px 13px;
+      color: #cfe4d5;
+      background: rgb(255 255 255 / 3%);
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      font-size: 0.7rem;
+    }
+
+    .phase-proof strong {
+      display: block;
+      margin-bottom: 2px;
+      color: var(--green);
+      font-size: 0.65rem;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+
+    .priority-note {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      align-items: center;
+      gap: 16px;
+      margin-top: 16px;
+      padding: 18px 20px;
+      color: #fff2c4;
+      background: rgb(251 191 36 / 7%);
+      border: 1px solid rgb(251 191 36 / 23%);
+      border-radius: var(--radius-lg);
+    }
+
+    .priority-note strong {
+      color: var(--amber);
+      font-size: 0.75rem;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+
+    .priority-note span {
+      font-size: 0.8rem;
+    }
+
+    .guardrail-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .guardrail {
+      padding: 21px;
+      background: rgb(19 31 51 / 84%);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+    }
+
+    .guardrail-icon {
+      display: grid;
+      width: 38px;
+      height: 38px;
+      margin-bottom: 18px;
+      place-items: center;
+      color: var(--green);
+      background: rgb(74 222 128 / 8%);
+      border-radius: 12px;
+      font-size: 0.8rem;
+      font-weight: 900;
+    }
+
+    .guardrail h3 {
+      margin-bottom: 6px;
+      font-size: 0.93rem;
+    }
+
+    .guardrail p {
+      margin-bottom: 0;
+      color: var(--muted);
+      font-size: 0.75rem;
+    }
+
+    .closing {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 28px;
+      margin-top: 92px;
+      padding: 34px;
+      background:
+        radial-gradient(circle at 90% 50%, rgb(74 222 128 / 14%), transparent 23rem),
+        linear-gradient(145deg, #183146, #132238);
+      border: 1px solid rgb(74 222 128 / 24%);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow);
+    }
+
+    .closing h2 {
+      margin-bottom: 8px;
+      font-size: clamp(1.45rem, 3vw, 2.35rem);
+    }
+
+    .closing p {
+      max-width: 760px;
+      margin-bottom: 0;
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+
+    .closing-badge {
+      display: grid;
+      width: 104px;
+      height: 104px;
+      place-items: center;
+      color: #052e16;
+      background: var(--green);
+      border: 9px solid rgb(74 222 128 / 14%);
+      border-radius: 50%;
+      font-size: 0.72rem;
+      font-weight: 950;
+      line-height: 1.25;
+      text-align: center;
+      text-transform: uppercase;
+    }
+
+    .sources {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 9px;
+      margin-top: 20px;
+    }
+
+    .source-link {
+      padding: 11px 12px;
+      overflow: hidden;
+      color: var(--muted);
+      background: rgb(255 255 255 / 2%);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-decoration: none;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .source-link:hover {
+      color: var(--ink);
+      border-color: var(--line-strong);
+    }
+
+    footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-top: 32px;
+      padding-top: 20px;
+      color: var(--faint);
+      border-top: 1px solid var(--line);
+      font-size: 0.7rem;
+    }
+
+    @media (max-width: 980px) {
+      .hero,
+      .section-heading {
+        grid-template-columns: 1fr;
+      }
+
+      .hero {
+        align-items: start;
+      }
+
+      .verdict {
+        max-width: 680px;
+      }
+
+      .fact-strip,
+      .rule-band,
+      .guardrail-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .challenge-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .benchmark-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .benchmark-stage {
+        grid-template-columns: 1fr;
+      }
+
+      .benchmark-profile {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .phase {
+        grid-template-columns: 58px minmax(0, 1fr);
+      }
+
+      .phase-proof {
+        grid-column: 2;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .shell {
+        width: min(100% - 22px, var(--max));
+        padding-top: 15px;
+      }
+
+      .topbar {
+        align-items: flex-start;
+        margin-bottom: 48px;
+      }
+
+      .top-actions .top-link:first-child {
+        display: none;
+      }
+
+      .hero {
+        gap: 26px;
+      }
+
+      .fact-strip {
+        grid-template-columns: 1fr 1fr;
+        margin-bottom: 60px;
+      }
+
+      .boundary {
+        grid-template-columns: 1fr;
+      }
+
+      .evidence-bridge {
+        min-height: 88px;
+        border: 0;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .bridge-line {
+        top: 12px;
+        bottom: 12px;
+        left: 50%;
+        width: 2px;
+        height: auto;
+        background: linear-gradient(var(--green), var(--blue));
+      }
+
+      .bridge-line::after {
+        top: auto;
+        right: -4px;
+        bottom: -1px;
+        transform: rotate(135deg);
+      }
+
+      .comparison {
+        grid-template-columns: 1fr;
+      }
+
+      .transform-arrow {
+        min-height: 64px;
+        border: 0;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .transform-arrow span {
+        transform: rotate(90deg);
+      }
+
+      .benchmark-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .ability-map,
+      .challenge-grid,
+      .guardrail-grid,
+      .sources {
+        grid-template-columns: 1fr;
+      }
+
+      .arch-row {
+        grid-template-columns: 1fr;
+      }
+
+      .arch-label {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .truth-rail,
+      .closing {
+        grid-template-columns: 1fr;
+      }
+
+      .truth-lock,
+      .closing-badge {
+        display: none;
+      }
+
+      footer {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+
+    @media (max-width: 520px) {
+      h1 {
+        font-size: 2.55rem;
+      }
+
+      .brand-copy span,
+      .top-actions {
+        display: none;
+      }
+
+      .fact-strip,
+      .rule-band {
+        grid-template-columns: 1fr;
+      }
+
+      .section {
+        margin-top: 72px;
+      }
+
+      .boundary-side,
+      .state-card,
+      .benchmark-profile,
+      .ability-map,
+      .roadmap,
+      .closing {
+        padding: 21px;
+      }
+
+      .phase {
+        grid-template-columns: 48px minmax(0, 1fr);
+        gap: 12px;
+      }
+
+      .phase-number {
+        width: 48px;
+        height: 48px;
+      }
+
+      .roadmap::before {
+        left: 44px;
+      }
+
+      .arch-flow {
+        padding: 20px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        scroll-behavior: auto !important;
+        transition: none !important;
+      }
+    }
+
+    @media print {
+      :root {
+        color-scheme: light;
+      }
+
+      body {
+        color: #172033;
+        background: #fff;
+      }
+
+      .shell {
+        width: 100%;
+        padding: 0;
+      }
+
+      .top-actions,
+      .benchmark-grid {
+        display: none;
+      }
+
+      .panel,
+      .fact,
+      .challenge-card,
+      .guardrail,
+      .source-link,
+      .rule,
+      .closing {
+        color: #172033;
+        background: #fff;
+        border-color: #cbd5e1;
+        box-shadow: none;
+      }
+
+      .muted,
+      p,
+      .section-intro,
+      .hero-copy,
+      .fact span {
+        color: #475569;
+      }
+
+      .section {
+        break-inside: avoid;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+            <path d="M12 3a4 4 0 0 0-4 4v1.2A4.8 4.8 0 0 0 5 12.7V17a3 3 0 0 0 3 3h8a3 3 0 0 0 3-3v-4.3a4.8 4.8 0 0 0-3-4.5V7a4 4 0 0 0-4-4Z"/>
+            <path d="M9 11.5h.01M15 11.5h.01M9.5 15h5"/>
+          </svg>
+        </div>
+        <div class="brand-copy">
+          <strong>AML MEMORY CANDIDATE</strong>
+          <span>重点 · 难点 · 架构 · 路线图</span>
+        </div>
+      </div>
+      <div class="top-actions">
+        <a class="top-link" href="./agent-memory-benchmark-roadmap.md">详细文档</a>
+        <a class="top-link" href="https://agentmemoryleaderboard.ai/docs" target="_blank" rel="noreferrer">官方规范 ↗</a>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">Agent Memory Leaderboard · Textual Track</p>
+          <h1 id="page-title">从“按词找到”走向“真正记得”</h1>
+          <p class="hero-copy">这不是一个让 Agent 自己答题的项目，而是一套负责理解、组织和召回长期记忆证据的系统。平台统一回答和评分，我们要做的是把正确、完整、可审计的原始证据排在前面。</p>
+        </div>
+        <aside class="verdict" aria-label="当前判断">
+          <span class="verdict-label">Current verdict</span>
+          <strong>V1 已经能被评测，但还不是有竞争力的应试版。</strong>
+          <p>接口、幂等、隔离和原文证据已经可靠；下一步必须补齐语义、时间、关系、更新、偏好与规则记忆。</p>
+        </aside>
+      </section>
+
+      <div class="fact-strip" aria-label="关键事实">
+        <div class="fact"><strong>7 个</strong><span>文本记忆基准</span></div>
+        <div class="fact"><strong>7 类</strong><span>核心能力维度</span></div>
+        <div class="fact"><strong>Top 100</strong><span>按返回顺序读取证据</span></div>
+        <div class="fact"><strong>gpt-4o-mini</strong><span>Add / Search 生成式模型</span></div>
+      </div>
+
+      <section class="section" id="boundary" aria-labelledby="boundary-title">
+        <div class="section-heading">
+          <div>
+            <span class="section-index">01 · 先看边界</span>
+            <h2 id="boundary-title">系统负责记忆，平台负责回答</h2>
+          </div>
+          <p class="section-intro">LLM 可以在内部帮助理解和检索，但 Search 的外部输出只能是记忆证据。这个边界决定了整个架构。</p>
+        </div>
+
+        <div class="panel boundary">
+          <div class="boundary-side">
+            <span class="owner-badge">参赛系统 · 我们负责</span>
+            <h3>Memory System</h3>
+            <p>把对话变成可检索、可组合、可追溯的长期记忆。</p>
+            <div class="boundary-list">
+              <div class="boundary-item"><span class="boundary-icon">ADD</span><div><strong>同步写入</strong><span>原文、结构、索引全部可搜索后再成功</span></div></div>
+              <div class="boundary-item"><span class="boundary-icon">FIND</span><div><strong>证据检索</strong><span>理解问题，多路召回并排序原始证据</span></div></div>
+            </div>
+          </div>
+          <div class="evidence-bridge" aria-label="证据从参赛系统传给平台">
+            <span class="bridge-line" aria-hidden="true"></span>
+            <span class="bridge-label">raw evidence</span>
+          </div>
+          <div class="boundary-side platform-side">
+            <span class="owner-badge platform">官方平台 · 统一负责</span>
+            <h3>Evaluation Platform</h3>
+            <p>固定回答模型、提示词、评分器和汇总规则。</p>
+            <div class="boundary-list">
+              <div class="boundary-item"><span class="boundary-icon">ANS</span><div><strong>统一回答</strong><span>根据我们返回的证据生成答案</span></div></div>
+              <div class="boundary-item"><span class="boundary-icon">EVAL</span><div><strong>统一评分</strong><span>按数据集规则汇总最终结果</span></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rule-band" aria-label="四条硬规则">
+          <div class="rule"><span class="rule-code">EVIDENCE</span><strong>只返回原始证据</strong><span>不能直接回答，也不能把生成答案伪装成记忆。</span></div>
+          <div class="rule"><span class="rule-code">ISOLATION</span><strong>user_id 强隔离</strong><span>数据库、缓存、索引、图谱与回表路径都必须隔离。</span></div>
+          <div class="rule"><span class="rule-code">ORDER</span><strong>排序就是决策</strong><span>平台按返回顺序最多读取 Top 100，前排噪声会直接伤害结果。</span></div>
+          <div class="rule"><span class="rule-code">MODEL</span><strong>LLM 锁定合规</strong><span>Add/Search 内的生成式模型使用 gpt-4o-mini；Embedding 架构不受限定。</span></div>
+        </div>
+      </section>
+
+      <section class="section" id="gap" aria-labelledby="gap-title">
+        <div class="section-heading">
+          <div>
+            <span class="section-index">02 · 当前差距</span>
+            <h2 id="gap-title">可靠基线 ≠ 完整记忆能力</h2>
+          </div>
+          <p class="section-intro">V1 的工程基础值得保留。升级不是推倒重来，而是在原始证据之上增加多个辅助视图。</p>
+        </div>
+
+        <div class="panel comparison">
+          <article class="state-card current">
+            <div class="state-kicker"><span>Current · V1</span><span class="status-pill">已完成</span></div>
+            <h3>词法证据基线</h3>
+            <p>稳定处理 Add/Search 契约，适合验证接入、隔离与确定性，但对自然语言改写和复杂记忆问题能力不足。</p>
+            <div class="stack">
+              <div class="stack-layer"><span>FTS5 + BM25</span><small>原词召回</small></div>
+              <div class="stack-layer"><span>相邻消息扩展</span><small>局部上下文</small></div>
+              <div class="stack-layer"><span>幂等 + 用户隔离</span><small>可靠契约</small></div>
+              <div class="stack-layer locked"><span>原始消息</span><small>唯一证据源</small></div>
+            </div>
+          </article>
+          <div class="transform-arrow" aria-label="升级"><span>→</span></div>
+          <article class="state-card target">
+            <div class="state-kicker"><span>Target · 应试版</span><span class="status-pill">待开发</span></div>
+            <h3>多视图语义记忆</h3>
+            <p>用 LLM 理解、用多种索引组织、用混合检索组合证据，但最终仍回到未改写的原始消息。</p>
+            <div class="stack">
+              <div class="stack-layer"><span>Query Planner + Reranker</span><small>问题理解</small></div>
+              <div class="stack-layer"><span>Vector + BM25 + Graph</span><small>多路召回</small></div>
+              <div class="stack-layer"><span>Time + State + Persona + Rule</span><small>记忆治理</small></div>
+              <div class="stack-layer locked"><span>原始消息</span><small>始终不可替代</small></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="benchmarks" aria-labelledby="benchmarks-title">
+        <div class="section-heading">
+          <div>
+            <span class="section-index">03 · 基准地图</span>
+            <h2 id="benchmarks-title">七个基准，不是七套特判</h2>
+          </div>
+          <p class="section-intro">点击数据集查看主要压力点。正确策略是把它们归纳成通用记忆机制，而不是对题库硬编码。</p>
+        </div>
+
+        <div class="benchmark-grid" role="group" aria-label="选择数据集">
+          <button class="benchmark-tab" type="button" aria-pressed="true" data-benchmark="locomo">LoCoMo<br>Refined</button>
+          <button class="benchmark-tab" type="button" aria-pressed="false" data-benchmark="scriptmem">ScriptMem</button>
+          <button class="benchmark-tab" type="button" aria-pressed="false" data-benchmark="longmem">LongMemEval<br>Refined</button>
+          <button class="benchmark-tab" type="button" aria-pressed="false" data-benchmark="longmems">LongMemEval-S</button>
+          <button class="benchmark-tab" type="button" aria-pressed="false" data-benchmark="clbench">CLBench</button>
+          <button class="benchmark-tab" type="button" aria-pressed="false" data-benchmark="persona">PersonaMem-v2</button>
+          <button class="benchmark-tab" type="button" aria-pressed="false" data-benchmark="beam">BEAM</button>
+        </div>
+
+        <div class="panel benchmark-stage">
+          <div class="benchmark-profile" aria-live="polite">
+            <div>
+              <span class="profile-tag" id="benchmark-scale">长对话</span>
+              <h3 id="benchmark-name">LoCoMo-Refined</h3>
+              <p id="benchmark-description">在超长多轮对话中精确回忆时间、事件、关系和偏好。它特别惩罚“话题相关但细节错误”、时间粒度偏差、遗漏与无依据补充。</p>
+            </div>
+            <a class="profile-link" id="benchmark-link" href="https://github.com/mem-eval-suite/LoCoMo_refined" target="_blank" rel="noreferrer">查看官方来源 <span aria-hidden="true">↗</span></a>
+          </div>
+          <div class="ability-map" id="ability-map">
+            <div class="ability" data-ability="fact" data-active="true"><span class="ability-glyph">A</span><div><strong>事实召回</strong><span>精确找到人、事、物和细节</span></div></div>
+            <div class="ability" data-ability="relation" data-active="true"><span class="ability-glyph">B</span><div><strong>关系 / 多跳</strong><span>组合分散证据和关系链</span></div></div>
+            <div class="ability" data-ability="time" data-active="true"><span class="ability-glyph">C</span><div><strong>时间 / 更新</strong><span>先后、版本、当前状态</span></div></div>
+            <div class="ability" data-ability="persona" data-active="true"><span class="ability-glyph">E</span><div><strong>偏好 / 画像</strong><span>显式和隐含用户信号</span></div></div>
+            <div class="ability" data-ability="rule" data-active="false"><span class="ability-glyph">G</span><div><strong>规则 / 流程</strong><span>条件、步骤、例外和约束</span></div></div>
+            <div class="ability" data-ability="safety" data-active="true"><span class="ability-glyph">H</span><div><strong>克制 / 治理</strong><span>证据不足、矛盾与隐私</span></div></div>
+          </div>
+        </div>
+
+        <div class="matrix-wrap" aria-label="数据集能力覆盖矩阵">
+          <table class="matrix">
+            <thead><tr><th>数据集</th><th>事实召回</th><th>关系 / 多跳</th><th>时间 / 更新</th><th>偏好 / 画像</th><th>规则 / 流程</th><th>克制 / 治理</th><th>超长规模</th></tr></thead>
+            <tbody>
+              <tr><td>LoCoMo-Refined</td><td><span class="dot major"></span></td><td><span class="dot major"></span></td><td><span class="dot major"></span></td><td><span class="dot major"></span></td><td><span class="dot"></span></td><td><span class="dot secondary"></span></td><td><span class="dot secondary"></span></td></tr>
+              <tr><td>ScriptMem</td><td><span class="dot major"></span></td><td><span class="dot major"></span></td><td><span class="dot major"></span></td><td><span class="dot secondary"></span></td><td><span class="dot secondary"></span></td><td><span class="dot major"></span></td><td><span class="dot secondary"></span></td></tr>
+              <tr><td>LongMemEval-Refined</td><td><span class="dot major"></span></td><td><span class="dot major"></span></td><td><span class="dot major"></span></td><td><span class="dot major"></span></td><td><span class="dot"></span></td><td><span class="dot major"></span></td><td><span class="dot major"></span></td></tr>
+              <tr><td>LongMemEval-S</td><td><span class="dot major"></span></td><td><span class="dot major"></span></td><td><span class="dot major"></span></td><td><span class="dot major"></span></td><td><span class="dot"></span></td><td><span class="dot major"></span></td><td><span class="dot major"></span></td></tr>
+              <tr><td>CLBench</td><td><span class="dot secondary"></span></td><td><span class="dot major"></span></td><td><span class="dot secondary"></span></td><td><span class="dot"></span></td><td><span class="dot major"></span></td><td><span class="dot secondary"></span></td><td><span class="dot major"></span></td></tr>
+              <tr><td>PersonaMem-v2</td><td><span class="dot secondary"></span></td><td><span class="dot secondary"></span></td><td><span class="dot secondary"></span></td><td><span class="dot major"></span></td><td><span class="dot"></span></td><td><span class="dot secondary"></span></td><td><span class="dot major"></span></td></tr>
+              <tr><td>BEAM</td><td><span class="dot major"></span></td><td><span class="dot major"></span></td><td><span class="dot major"></span></td><td><span class="dot major"></span></td><td><span class="dot major"></span></td><td><span class="dot major"></span></td><td><span class="dot major"></span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="matrix-legend"><span><i class="dot major"></i>主要考点</span><span><i class="dot secondary"></i>会涉及</span><span><i class="dot"></i>不是重点</span></div>
+      </section>
+
+      <section class="section" id="challenges" aria-labelledby="challenges-title">
+        <div class="section-heading">
+          <div>
+            <span class="section-index">04 · 核心难点</span>
+            <h2 id="challenges-title">真正难的是“正确组织证据”</h2>
+          </div>
+          <p class="section-intro">召回一条相似文本只是起点。应试系统必须在准确性、完整性、时间一致性、成本和可审计性之间取得平衡。</p>
+        </div>
+
+        <div class="challenge-grid">
+          <article class="challenge-card"><div class="challenge-top"><span class="challenge-number">01</span><span class="challenge-risk">漏召回</span></div><h3>语义与精确匹配并存</h3><p>向量擅长同义改写，BM25 擅长姓名、日期、编号；任何单一路径都会有盲区。</p><div class="challenge-answer">BM25 + Dense 独立召回，RRF 融合后再重排。</div></article>
+          <article class="challenge-card"><div class="challenge-top"><span class="challenge-number">02</span><span class="challenge-risk">证据不全</span></div><h3>多跳不是单条相似文本</h3><p>人物、事件和结果可能分散在多个非相邻会话，需要找到完整证据链。</p><div class="challenge-answer">实体关系图 + 有界一至二跳扩展 + 覆盖度重排。</div></article>
+          <article class="challenge-card"><div class="challenge-top"><span class="challenge-number">03</span><span class="challenge-risk">状态过期</span></div><h3>时间、更新与矛盾</h3><p>旧安排和新安排都是真实历史，但只有最新有效状态回答“现在是什么”。</p><div class="challenge-answer">事件时间线 + 事实版本 + 替代/撤销关系。</div></article>
+          <article class="challenge-card"><div class="challenge-top"><span class="challenge-number">04</span><span class="challenge-risk">过度推断</span></div><h3>隐含偏好必须有来源</h3><p>一次偶然选择不能直接变成稳定画像，偏好需要多次证据和反证修正。</p><div class="challenge-answer">偏好主题 + 支持次数 + 最近时间 + 正反来源。</div></article>
+          <article class="challenge-card"><div class="challenge-top"><span class="challenge-number">05</span><span class="challenge-risk">漏掉约束</span></div><h3>规则和流程要完整</h3><p>少一个前置条件、例外或步骤，最终任务就可能完全失败。</p><div class="challenge-answer">结构化条件、步骤、例外和输出要求，并按覆盖完整性排序。</div></article>
+          <article class="challenge-card"><div class="challenge-top"><span class="challenge-number">06</span><span class="challenge-risk">噪声污染</span></div><h3>证据不足时允许为空</h3><p>低相关结果填满 Top K 会诱导平台回答模型产生错误答案。</p><div class="challenge-answer">绝对相关性门槛 + 候选差距 + 空数组策略。</div></article>
+        </div>
+      </section>
+
+      <section class="section" id="architecture" aria-labelledby="architecture-title">
+        <div class="section-heading">
+          <div>
+            <span class="section-index">05 · 目标架构</span>
+            <h2 id="architecture-title">LLM 理解，多路检索，原文作证</h2>
+          </div>
+          <p class="section-intro">结构化记忆是索引，不是事实本身。所有路径最终必须落回带有 user_id、session_id 和 timestamp 的原始消息。</p>
+        </div>
+
+        <div class="panel architecture">
+          <div class="arch-row">
+            <div class="arch-label"><strong>Add</strong><span>一次写入，多种视图</span></div>
+            <div class="arch-flow">
+              <div class="arch-node primary"><code>01 · CONTRACT</code><strong>校验与幂等</strong><span>同步语义、用户隔离、请求冲突</span></div>
+              <div class="arch-node evidence"><code>02 · SOURCE</code><strong>保存原始消息</strong><span>不可改写、可追溯、最终证据源</span></div>
+              <div class="arch-node"><code>03 · LLM</code><strong>结构化抽取</strong><span>事实、实体、时间、偏好、规则、更新</span></div>
+              <div class="arch-node"><code>04 · INDEX</code><strong>建立多种索引</strong><span>BM25、向量、关系、时间与状态</span></div>
+              <div class="arch-node primary"><code>05 · COMMIT</code><strong>确认可搜索</strong><span>全部成功后才返回 HTTP 200</span></div>
+            </div>
+          </div>
+          <div class="arch-row">
+            <div class="arch-label"><strong>Search</strong><span>理解问题，组合证据</span></div>
+            <div class="arch-flow">
+              <div class="arch-node primary"><code>01 · QUERY</code><strong>自然语言问题</strong><span>不依赖冒号、模板或固定关键词</span></div>
+              <div class="arch-node"><code>02 · PLAN</code><strong>查询规划</strong><span>识别事实、多跳、时间、偏好与规则意图</span></div>
+              <div class="arch-node"><code>03 · RETRIEVE</code><strong>并行召回</strong><div class="search-retrievers"><b>BM25</b><b>VECTOR</b><b>GRAPH</b><b>TIME</b></div></div>
+              <div class="arch-node"><code>04 · RANK</code><strong>融合与重排</strong><span>RRF、去重、覆盖度、时间和多样性</span></div>
+              <div class="arch-node evidence"><code>05 · EVIDENCE</code><strong>返回原始证据</strong><span>回表取原文，稳定排序，最多 Top 100</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="truth-rail">
+          <div><strong>辅助层可以聪明</strong><span>LLM、Embedding、图谱、时间线、偏好和规则都用于更好地找到证据。</span></div>
+          <div class="truth-lock" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v2"/></svg></div>
+          <div><strong>证据层必须保真</strong><span>最终返回内容只能来自原始消息；模型生成内容不能冒充事实。</span></div>
+        </div>
+      </section>
+
+      <section class="section" id="roadmap" aria-labelledby="roadmap-title">
+        <div class="section-heading">
+          <div>
+            <span class="section-index">06 · 主要步骤</span>
+            <h2 id="roadmap-title">按依赖推进，不一次堆满功能</h2>
+          </div>
+          <p class="section-intro">每一阶段都必须有可验证的完成证据。没有可复现增益的复杂机制，应当被简化或删除。</p>
+        </div>
+
+        <div class="panel roadmap">
+          <article class="phase"><span class="phase-number">00</span><div class="phase-copy"><h3>冻结可靠契约基线</h3><p>锁住同步、幂等、隔离、原文回表、Docker 和黑盒预检。</p></div><div class="phase-proof"><strong>验收证据</strong>增强关闭时与 V1 行为一致，原有测试全部通过。</div></article>
+          <article class="phase"><span class="phase-number">01</span><div class="phase-copy"><h3>模型与语义基础设施</h3><p>接入 gpt-4o-mini、Embedding、超时重试、调用限制和脱敏观测。</p></div><div class="phase-proof"><strong>验收证据</strong>结构化输出稳定，向量在 Add 成功前可搜索，密钥不泄漏。</div></article>
+          <article class="phase"><span class="phase-number">02</span><div class="phase-copy"><h3>结构化记忆写入</h3><p>建立事实、实体、关系、事件、时间、偏好、规则和状态 schema。</p></div><div class="phase-proof"><strong>验收证据</strong>每条辅助记忆都绑定原文来源，无来源内容不能入索引。</div></article>
+          <article class="phase"><span class="phase-number">03</span><div class="phase-copy"><h3>混合检索与重排</h3><p>BM25 + Dense + RRF + 去重/多样性，再回表读取原始消息。</p></div><div class="phase-proof"><strong>验收证据</strong>改写召回提升，姓名日期不退化，排序确定且可复现。</div></article>
+          <article class="phase"><span class="phase-number">04</span><div class="phase-copy"><h3>时间、状态、图与规则治理</h3><p>处理多跳、更新、矛盾、隐含偏好、流程完整性和空结果。</p></div><div class="phase-proof"><strong>验收证据</strong>新状态优先、多跳证据齐全、无答案不被噪声填充。</div></article>
+          <article class="phase"><span class="phase-number">05</span><div class="phase-copy"><h3>公开基准回归与消融</h3><p>比较 lexical、dense、hybrid、graph、temporal 和 rerank。</p></div><div class="phase-proof"><strong>验收证据</strong>新增机制有独立增益；检索、延迟、成本与失败类型可追踪。</div></article>
+          <article class="phase"><span class="phase-number">06</span><div class="phase-copy"><h3>提交冻结与复现</h3><p>锁定依赖、模型、提示词、配置、Docker、版本和方法披露。</p></div><div class="phase-proof"><strong>验收证据</strong>平台从干净环境可构建运行，提交版本与正式版本一致。</div></article>
+        </div>
+
+        <div class="priority-note"><strong>最近一轮只做什么</strong><span>先完成 gpt-4o-mini 适配、Embedding 持久化、Dense Retriever、BM25 + Dense RRF 和对应回归；确认语义检索获得可复现增益后，再进入知识图谱与时间治理。</span></div>
+      </section>
+
+      <section class="section" id="guardrails" aria-labelledby="guardrails-title">
+        <div class="section-heading">
+          <div>
+            <span class="section-index">07 · 成功护栏</span>
+            <h2 id="guardrails-title">应试不等于投机</h2>
+          </div>
+          <p class="section-intro">真正可持续的冲榜策略，是把公开基准暴露的问题固化成通用能力，同时保持证据、隔离和复现边界。</p>
+        </div>
+        <div class="guardrail-grid">
+          <article class="guardrail"><span class="guardrail-icon">SRC</span><h3>原文优先</h3><p>摘要、图谱和状态只帮助找证据，不能替代原始消息。</p></article>
+          <article class="guardrail"><span class="guardrail-icon">UID</span><h3>全链路隔离</h3><p>每张表、缓存、索引和图查询都显式包含 user_id。</p></article>
+          <article class="guardrail"><span class="guardrail-icon">LAB</span><h3>禁止标签泄漏</h3><p>答案、题型标签和 gold evidence 不能进入查询规划。</p></article>
+          <article class="guardrail"><span class="guardrail-icon">REP</span><h3>结果可复现</h3><p>锁定模型、提示词、版本和配置，并记录每个机制的消融。</p></article>
+        </div>
+      </section>
+
+      <section class="closing" aria-labelledby="closing-title">
+        <div>
+          <h2 id="closing-title">最终目标：不是“它知道答案”，而是“它找对了记忆”。</h2>
+          <p>当平台收到的是完整、低噪声、时间一致、来源清楚的原始证据，统一回答模型才有机会稳定答对。我们的竞争力最终体现在证据的召回、组织和排序上。</p>
+        </div>
+        <div class="closing-badge" aria-hidden="true">Evidence<br>First</div>
+      </section>
+
+      <div class="sources" aria-label="主要来源">
+        <a class="source-link" href="https://agentmemoryleaderboard.ai/docs" target="_blank" rel="noreferrer">Agent Memory Leaderboard · 官方文档</a>
+        <a class="source-link" href="https://github.com/mem-eval-suite/LoCoMo_refined" target="_blank" rel="noreferrer">LoCoMo-Refined</a>
+        <a class="source-link" href="https://github.com/memorax-ai/ScriptMem" target="_blank" rel="noreferrer">ScriptMem</a>
+        <a class="source-link" href="https://github.com/xiaowu0162/LongMemEval" target="_blank" rel="noreferrer">LongMemEval</a>
+        <a class="source-link" href="https://github.com/Tencent-Hunyuan/CL-bench" target="_blank" rel="noreferrer">CLBench</a>
+        <a class="source-link" href="https://github.com/bowen-upenn/PersonaMem-v2" target="_blank" rel="noreferrer">PersonaMem-v2</a>
+        <a class="source-link" href="https://github.com/mohammadtavakoli78/BEAM" target="_blank" rel="noreferrer">BEAM</a>
+      </div>
+    </main>
+
+    <footer>
+      <span>AML Memory Candidate · 视觉路线图 · 2026-09-01</span>
+      <span>配套文档：docs/agent-memory-benchmark-roadmap.md</span>
+    </footer>
+  </div>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const benchmarkData = {
+        locomo: {
+          name: "LoCoMo-Refined",
+          scale: "长对话 · 严格证据",
+          description: "在超长多轮对话中精确回忆时间、事件、关系和偏好。它特别惩罚“话题相关但细节错误”、时间粒度偏差、遗漏与无依据补充。",
+          link: "https://github.com/mem-eval-suite/LoCoMo_refined",
+          abilities: ["fact", "relation", "time", "persona", "safety"]
+        },
+        scriptmem: {
+          name: "ScriptMem",
+          scale: "剧本叙事 · 关系图",
+          description: "从真实剧本叙事构造人物、事件和关系链，覆盖单选、复选与排序。错误往往暴露实体关系、多跳路径或事件先后的具体缺陷。",
+          link: "https://github.com/memorax-ai/ScriptMem",
+          abilities: ["fact", "relation", "time", "persona", "rule", "safety"]
+        },
+        longmem: {
+          name: "LongMemEval-Refined",
+          scale: "多会话 · 动态状态",
+          description: "覆盖信息提取、多会话推理、知识更新、时间推理与信息不足时的克制，强调动态交互中的在线记忆和证据完整性。",
+          link: "https://github.com/xiaowu0162/LongMemEval",
+          abilities: ["fact", "relation", "time", "persona", "safety"]
+        },
+        longmems: {
+          name: "LongMemEval-S",
+          scale: "约 115K tokens · 多会话",
+          description: "每个问题面对约 40 个带时间戳的历史会话。证据可能跨会话分散，也可能根本不存在，要求召回准确、状态新鲜并懂得不填充噪声。",
+          link: "https://github.com/xiaowu0162/LongMemEval",
+          abilities: ["fact", "relation", "time", "persona", "safety"]
+        },
+        clbench: {
+          name: "CLBench",
+          scale: "上下文学习 · 规则流程",
+          description: "从上下文学习新知识、规则系统、复杂流程和经验规律。关键不只是找到一句相关文字，而是找齐前置条件、步骤、例外和输出要求。",
+          link: "https://github.com/Tencent-Hunyuan/CL-bench",
+          abilities: ["fact", "relation", "time", "rule", "safety"]
+        },
+        persona: {
+          name: "PersonaMem-v2",
+          scale: "隐含偏好 · 长上下文",
+          description: "用户常常不会直接声明偏好，系统需要从多次选择和行为中积累信号，同时区分稳定偏好、临时表达和反向证据。",
+          link: "https://github.com/bowen-upenn/PersonaMem-v2",
+          abilities: ["fact", "relation", "time", "persona", "safety"]
+        },
+        beam: {
+          name: "BEAM",
+          scale: "128K → 10M tokens",
+          description: "把长期记忆压力推到百万乃至千万 token，同时覆盖更新、矛盾、排序、多跳、偏好、指令、摘要、时间与克制，是对分层记忆和系统扩展性的综合测试。",
+          link: "https://github.com/mohammadtavakoli78/BEAM",
+          abilities: ["fact", "relation", "time", "persona", "rule", "safety"]
+        }
+      };
+
+      const tabs = [...document.querySelectorAll("[data-benchmark]")];
+      const name = document.querySelector("#benchmark-name");
+      const scale = document.querySelector("#benchmark-scale");
+      const description = document.querySelector("#benchmark-description");
+      const link = document.querySelector("#benchmark-link");
+      const abilities = [...document.querySelectorAll("[data-ability]")];
+
+      function selectBenchmark(key) {
+        const data = benchmarkData[key];
+        if (!data) return;
+
+        tabs.forEach((tab) => tab.setAttribute("aria-pressed", String(tab.dataset.benchmark === key)));
+        name.textContent = data.name;
+        scale.textContent = data.scale;
+        description.textContent = data.description;
+        link.href = data.link;
+        link.setAttribute("aria-label", `查看 ${data.name} 官方来源`);
+        abilities.forEach((ability) => {
+          ability.dataset.active = String(data.abilities.includes(ability.dataset.ability));
+        });
+      }
+
+      tabs.forEach((tab) => {
+        tab.addEventListener("click", () => selectBenchmark(tab.dataset.benchmark));
+      });
+    })();
+  </script>
+</body>
+</html>

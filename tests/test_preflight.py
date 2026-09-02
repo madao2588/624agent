@@ -146,6 +146,16 @@ def test_cli_reads_api_key_only_from_named_environment_variable() -> None:
     assert config.search_concurrency == 8
 
 
+def test_preflight_defaults_match_the_maximum_evaluation_concurrency() -> None:
+    config = parse_cli_config(
+        ["--base-url", "http://127.0.0.1:8000"],
+        environ={},
+    )
+
+    assert config.add_concurrency == 64
+    assert config.search_concurrency == 256
+
+
 def test_cli_rejects_missing_key_without_disclosing_environment() -> None:
     with pytest.raises(ValueError, match="required") as captured:
         parse_cli_config(

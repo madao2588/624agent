@@ -43,8 +43,8 @@ class PreflightConfig:
     timeout: float = 10.0
     auth_scheme: str = "none"
     api_key: str | None = None
-    add_concurrency: int = 16
-    search_concurrency: int = 32
+    add_concurrency: int = 64
+    search_concurrency: int = 256
 
     def __post_init__(self) -> None:
         parsed = urlparse(self.base_url)
@@ -385,8 +385,8 @@ def _argument_parser() -> argparse.ArgumentParser:
         default="MEMORY_API_KEY",
         help="Environment variable containing the API key; key values are never CLI arguments.",
     )
-    parser.add_argument("--add-concurrency", type=int, default=16)
-    parser.add_argument("--search-concurrency", type=int, default=32)
+    parser.add_argument("--add-concurrency", type=int, default=64)
+    parser.add_argument("--search-concurrency", type=int, default=256)
     return parser
 
 

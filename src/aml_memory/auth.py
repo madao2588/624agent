@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hmac
-from typing import Annotated
 
 from fastapi import Header, HTTPException
 
@@ -21,8 +20,8 @@ class ApiKeyAuthenticator:
 
     def __call__(
         self,
-        authorization: Annotated[str | None, Header()] = None,
-        x_api_key: Annotated[str | None, Header(alias="X-Api-Key")] = None,
+        authorization: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None, alias="X-Api-Key"),
     ) -> None:
         if self._scheme == "none":
             return

@@ -16,6 +16,7 @@ __pycache__
 data
 dist
 docs
-evaluation
+evaluation/*
+!evaluation/evaluation-profile.json
 scripts
 tests

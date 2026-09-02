@@ -4,8 +4,16 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 
 
 def _require_non_blank(value: str) -> str:
@@ -72,3 +80,116 @@ class MemoryEvidence(ContractModel):
 
 class SearchResponse(ContractModel):
     data: list[MemoryEvidence]
+
+
+class DiagnosticFacet(ContractModel):
+    kind: str
+    value: str
+    normalized_value: str
+    confidence: float
+
+
+class DiagnosticMemoryEvidence(MemoryEvidence):
+    reasons: list[str]
+    facets: list[DiagnosticFacet]
+    state: Literal["active", "history", "cancelled", "forgotten"]
+
+
+class DiagnosticRelation(ContractModel):
+    source_id: str
+    target_id: str
+    relation: str
+    anchor: str
+    confidence: float
+
+
+class SearchDiagnosticsResponse(ContractModel):
+    data: list[DiagnosticMemoryEvidence]
+    relations: list[DiagnosticRelation]
+
+
+class RetrievalConnectionCreate(ContractModel):
+    provider: Literal["openai", "openai-compatible", "deepseek"]
+    api_key: SecretStr
+    model: str | None = None
+    base_url: str | None = None
+
+    @field_validator("model")
+    @classmethod
+    def model_must_not_be_blank(cls, value: str | None) -> str | None:
+        if value is not None:
+            _require_non_blank(value)
+        return value
+
+    @field_validator("api_key")
+    @classmethod
+    def api_key_must_not_be_blank(cls, value: SecretStr) -> SecretStr:
+        _require_non_blank(value.get_secret_value())
+        return value
+
+    @model_validator(mode="after")
+    def validate_provider_url(self) -> RetrievalConnectionCreate:
+        if self.provider == "openai":
+            if self.base_url not in {None, "https://api.openai.com/v1"}:
+                raise ValueError("OpenAI provider uses https://api.openai.com/v1")
+            return self
+        if self.provider == "deepseek":
+            if self.base_url not in {None, "https://api.deepseek.com"}:
+                raise ValueError("DeepSeek provider uses https://api.deepseek.com")
+            return self
+        if self.model is None:
+            raise ValueError("model is required for an OpenAI-compatible provider")
+        if self.base_url is None:
+            raise ValueError("base_url is required for an OpenAI-compatible provider")
+        parsed = urlsplit(self.base_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ValueError("base_url must be an HTTP(S) URL with a hostname")
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError("base_url must not contain credentials")
+        if parsed.query or parsed.fragment:
+            raise ValueError("base_url must not contain a query or fragment")
+        return self
+
+    @property
+    def resolved_base_url(self) -> str:
+        if self.provider == "openai":
+            return "https://api.openai.com/v1"
+        if self.provider == "deepseek":
+            return "https://api.deepseek.com"
+        assert self.base_url is not None
+        return self.base_url.rstrip("/")
+
+    @property
+    def resolved_model(self) -> str:
+        if self.model is not None:
+            return self.model
+        if self.provider == "deepseek":
+            return "deepseek-v4-flash"
+        return "text-embedding-3-small"
+
+
+EmbeddingConnectionCreate = RetrievalConnectionCreate
+
+
+class EmbeddingConnectionResponse(ContractModel):
+    connection_id: str
+    provider: Literal["openai", "openai-compatible", "deepseek"]
+    model: str
+    base_url: str
+    expires_at: datetime
+
+
+class EmbeddingConnectionDeleteResponse(ContractModel):
+    success: Literal[True] = True
+
+
+class RetrievalConnectionResponse(ContractModel):
+    connection_id: str
+    provider: Literal["openai", "openai-compatible", "deepseek"]
+    capability: Literal["embedding", "query-expansion"]
+    model: str
+    base_url: str
+    expires_at: datetime
+
+
+RetrievalConnectionDeleteResponse = EmbeddingConnectionDeleteResponse

@@ -5,16 +5,26 @@
 A reproducible, evidence-first Add/Search memory service for the Agent Memory
 Leaderboard Academic Textual Memory track.
 
-This repository intentionally starts with a deterministic lexical baseline.
-It preserves raw messages, enforces exact user isolation, expands same-session
-context, and leaves stable extension points for embeddings, rank fusion,
-reranking, temporal governance, and agentic query planning.
+The default configuration is a deterministic, credential-free structured
+lexical system. It combines FTS5/BM25, CJK bigrams, source-backed facets,
+event-state governance, preference/rule channels, and bounded three-hop
+relations. An optional embedding adapter adds durable semantic vectors and
+BM25 + Dense reciprocal rank fusion without changing the leaderboard contract.
+All modes preserve raw messages and enforce exact user isolation. Ordinary
+Chinese questions do not require spaces, colon tags, or another trigger syntax.
 
 ## What this service does
 
 ```text
-Add -> validate -> idempotent SQLite transaction -> raw message + FTS5 index
-Search -> safe FTS5 query -> user-filtered hits -> neighbor expansion -> evidence
+Add -> idempotency -> local facets -> raw message + indexes + source relations
+Search -> BM25 + facets + state + graph + intent -> grounded rerank -> evidence
+```
+
+With embeddings enabled:
+
+```text
+Add -> batch embedding -> raw message + FTS5 + vector in one SQLite transaction
+Search -> BM25 candidates + cosine candidates -> RRF -> neighbors -> evidence
 ```
 
 The service returns memory evidence only. It does not generate or disguise a
@@ -90,20 +100,114 @@ python -m venv .venv
 ```
 
 Open <http://127.0.0.1:8000/demo> for the **Memory Playground**. It provides a
-score-free guided story that writes memories across sessions, retrieves the
-original evidence, and lets you switch users to see isolation directly. The
-page calls the same Add/Search endpoints used by the evaluation contract; it
-does not use a separate demo store or generate prepared answers.
+score-free, single-person conversation that writes three genuine multi-message
+sessions: a preference, an appointment, and a later appointment update. Ask a
+suggested question or add another turn to see the original evidence recalled.
+The page writes through the same Add endpoint and searches through the same
+retrieval pipeline used by the evaluation contract. It does not use a separate
+demo store or generate prepared answers.
 
 Use the default `MEMORY_AUTH_SCHEME=none` for this local browser experience.
 "Start fresh" creates a new user namespace and leaves existing persisted data
 untouched.
+
+### Temporary browser-selected semantic retrieval
+
+The playground starts in free local lexical mode. Open the collapsed
+**Retrieval settings** panel to select DeepSeek, OpenAI, or a custom
+OpenAI-compatible endpoint. **Test and connect** performs one real provider
+probe. Embedding providers switch subsequent Add/Search calls to BM25 + Dense
+fusion. DeepSeek instead expands only each Search question into related terms;
+the resulting lexical search remains local and Add never calls DeepSeek.
+
+The API key is never written to SQLite, API responses, or application logs. By
+default the browser keeps only an opaque connection ID in `sessionStorage`.
+When **Remember this Key in this browser** is selected, the playground also
+stores the selected provider configuration and Key in that browser's
+`localStorage` so it can reconnect after a reload. This is convenient but should
+only be used on a trusted personal device; **Disconnect and clear key** removes
+both the server-side connection and the saved browser value.
+
+### Recall diagnostics
+
+After a successful recall, the playground shows why each source was retrieved,
+its structured facets, a current/history/cancelled/forgotten timeline, and a
+bounded relation graph. These views come from
+`POST /v1/memories/search/diagnostics`, which shares the same authentication,
+user isolation, connection selection, and retrieval pipeline as ordinary
+Search. The diagnostics route is intentionally excluded from OpenAPI and the
+leaderboard contract; `/v1/memories/search` retains its exact evidence-only
+response.
+
+The provider-neutral API is:
+
+```text
+POST   /v1/retrieval-connections
+GET    /v1/retrieval-connections/{connection_id}
+DELETE /v1/retrieval-connections/{connection_id}
+```
+
+Add/Search keep their leaderboard-compatible JSON bodies. A client opts into
+the temporary connection with this header:
+
+```text
+X-Retrieval-Connection: <opaque connection_id>
+```
+
+The former `/v1/embedding-connections` routes and
+`X-Embedding-Connection` header remain compatibility aliases.
+`provider: "openai"` fixes the base URL to `https://api.openai.com/v1`.
+`provider: "openai-compatible"` requires an HTTP(S) base URL without embedded
+credentials, query parameters, or fragments. Connect before Add: messages
+written in lexical mode do not have vectors to backfill automatically.
+
+`provider: "deepseek"` fixes the base URL to `https://api.deepseek.com` and
+defaults to `deepseek-v4-flash`. DeepSeek's public API is used as a language
+model, not an embedding model: the request contains the current search question
+and a fixed JSON instruction only. Stored memory text, results, user IDs, and
+prior searches are not sent. Provider failures return a sanitized 503 instead
+of silently falling back to lexical mode.
 
 Run the real HTTP smoke test in another terminal:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\smoke_test.py http://127.0.0.1:8000
 ```
+
+### Readable offline memory challenges
+
+To inspect memory behavior without an API key, external model, generated
+answer, or leaderboard result, run:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_memory_challenges.py
+```
+
+The checked-in corpus contains 20 legal synthetic scenarios covering explicit
+facts, cross-language recall, options, alias/coreference, relative time,
+update/cancel/resume/forget governance, two- and three-hop relations,
+preferences, habits, procedures, prompt-injection memories, and abstention. For
+each question the runner prints the expected source excerpt and every raw
+evidence message returned by the real pipeline. Its Recall@K, MRR, nDCG, noise,
+abstention, and latency footer is local diagnostic output, not an official
+benchmark score.
+
+The cases live in [`evaluation/memory_challenges.json`](evaluation/memory_challenges.json)
+and can be replaced with another compatible file using `--cases`.
+
+Explicit updates and source-backed structured event changes can create durable
+state relations when the new and prior messages share strong anchors. Current
+queries prefer active or resumed evidence; history queries retain the auditable
+older chain. Cancelled and forgotten memories are kept for explicit history but
+stay out of ordinary recall.
+
+Source messages with explicit preference language (`prefer`, `favorite`,
+`avoid`, `dislike`, `喜欢`, `偏爱`) or procedure language (`must`, `before`,
+`never`, `if`, `必须`, `步骤`) receive a user-isolated auxiliary tag in the
+same Add transaction. Preference/procedure questions can use the corresponding
+bounded tag channel when ordinary wording does not overlap. Tags point only to
+raw sources: the service does not turn one behavior into an inferred profile or
+invent a procedural answer.
 
 ## Docker
 
@@ -126,8 +230,8 @@ Run the black-box contract preflight against a live service:
 ```powershell
 .\.venv\Scripts\python.exe scripts\eval_preflight.py `
   --base-url http://127.0.0.1:8000 `
-  --add-concurrency 16 `
-  --search-concurrency 32
+  --add-concurrency 64 `
+  --search-concurrency 256
 ```
 
 The installed command is equivalent:
@@ -150,9 +254,22 @@ prepared submission notes are in [`evaluation/SUBMISSION.md`](evaluation/SUBMISS
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `MEMORY_DB_PATH` | `data/memory.db` | SQLite database path |
+| `MEMORY_RUNTIME_MODE` | `local` | `local` or frozen `evaluation` runtime |
 | `MEMORY_NEIGHBOR_RADIUS` | `1` | Same-session messages on each side of a hit |
 | `MEMORY_AUTH_SCHEME` | `none` | `none`, `token`, `bearer`, or `x-api-key` |
 | `MEMORY_API_KEY` | unset | Required when authentication is enabled |
+| `MEMORY_EMBEDDING_PROVIDER` | `none` | `none` or `openai-compatible` |
+| `MEMORY_EMBEDDING_API_KEY` | unset | Required when embeddings are enabled |
+| `MEMORY_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model ID |
+| `MEMORY_EMBEDDING_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible API root |
+| `MEMORY_EMBEDDING_DIMENSIONS` | unset | Optional output dimension override |
+| `MEMORY_EMBEDDING_TIMEOUT_SECONDS` | `30` | Embedding HTTP timeout |
+| `MEMORY_EVALUATION_API_KEY` | unset | Required only in `evaluation` mode |
+| `MEMORY_EVALUATION_MODEL` | `gpt-4o-mini` | Fixed; any other value fails startup |
+| `MEMORY_EVALUATION_PROFILE` | `evaluation/evaluation-profile.json` | Checked-in frozen evaluation settings |
+
+See [`.env.example`](.env.example) for safe local defaults and placeholders.
+Real credentials must be injected at runtime and must not be committed.
 
 Health remains public when API authentication is enabled. Add/Search and their
 compatibility aliases require the configured credential. Secrets are read only
@@ -181,7 +298,54 @@ Run the authenticated preflight without placing the key in shell history:
   --api-key-env MEMORY_API_KEY
 ```
 
-No external model key is required for the current lexical implementation.
+No external model key is required for the default lexical implementation.
+To enable semantic retrieval, set the provider, API key, and model before
+starting the service:
+
+```powershell
+$env:MEMORY_EMBEDDING_PROVIDER = "openai-compatible"
+$env:MEMORY_EMBEDDING_API_KEY = "replace-with-your-key"
+$env:MEMORY_EMBEDDING_MODEL = "text-embedding-3-small"
+.\.venv\Scripts\python.exe -m uvicorn aml_memory.app:app --host 0.0.0.0 --port 8000
+```
+
+The adapter sends message text and search queries to the configured embedding
+service. The API key is read only from the environment and is not stored or
+logged. If the provider is enabled but unavailable, Add/Search returns 503
+instead of silently changing retrieval behavior. Add creates all message
+vectors before opening the SQLite write transaction, then commits messages,
+FTS rows, and vectors atomically.
+
+The current durable vector backend calculates cosine similarity with a bounded
+candidate pipeline but scans the selected user's compatible SQLite vectors in
+Python. It is deliberately dependency-free and suitable for local demos and
+correctness regression. Before million-scale use, replace that store method
+with sqlite-vec, FAISS, or a vector service; the Embedder, retrieval pipeline,
+and HTTP contract do not need to change.
+
+### Frozen evaluation mode
+
+Formal evaluation runs separately from the playground's temporary provider
+connections. Start it with:
+
+```powershell
+$env:MEMORY_RUNTIME_MODE = "evaluation"
+$env:MEMORY_EVALUATION_API_KEY = "replace-with-your-openai-api-key"
+python -m uvicorn aml_memory.app:app --host 0.0.0.0 --port 8000
+```
+
+The checked-in profile fixes `gpt-4o-mini`, Add enrichment, Search planning,
+candidate limits, three-hop graph traversal, timeout, two attempts, and a
+bounded circuit breaker. Add uses the Responses API with strict structured
+output to attach source-backed retrieval facets; Search uses the same fixed
+model for bounded query terms. Both calls set `store: false`. A repeated
+identical Add is resolved before the provider call. Provider failures return a
+sanitized 503 and never cause a partial write or silent local fallback.
+
+Temporary DeepSeek/embedding connection headers are rejected in evaluation
+mode so a caller cannot alter the frozen method. Search still returns only raw
+messages stored for the requested `user_id`; model output is never returned as
+evidence.
 
 ## Verification
 
@@ -190,21 +354,24 @@ No external model key is required for the current lexical implementation.
 .\.venv\Scripts\python.exe -m mypy src
 .\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\python.exe -m compileall -q src tests scripts
+.\.venv\Scripts\python.exe scripts\scan_secrets.py
 ```
 
 The regression suite covers API validation, synchronous visibility,
 idempotency conflicts, strict user isolation, special FTS input, context
-expansion, timestamp fidelity, concurrent retries, restart recovery, and log
-payload safety. GitHub Actions repeats these checks, builds the Docker image,
-starts an ephemeral container, and runs the complete evaluation preflight.
+expansion, explicit state chains, preference/procedure intent channels,
+timestamp fidelity, concurrent retries, restart recovery, and log payload
+safety. GitHub Actions repeats these checks, builds the Docker image, starts an
+ephemeral container, and runs the complete evaluation preflight.
 
-## Current boundary and next version
+## Current boundary
 
-V1 is a reliable lexical baseline, not a claim of leaderboard competitiveness.
-The next version will add a pluggable OpenAI-compatible embedding adapter,
-durable vectors, Dense + BM25 Reciprocal Rank Fusion, and end-to-end regression
-against the leaderboard contract. Raw source messages will remain the only
-returned evidence.
+The default remains free and deterministic. Evaluation mode adds a fixed model
+dependency but does not turn the service into an answer generator: raw source
+messages remain the only returned evidence. The SQLite vector path intentionally
+uses a bounded Python cosine scan and is not intended for million-scale hosting.
+The included synthetic metrics are regression diagnostics and no official
+leaderboard score is claimed.
 
 The approved design and implementation plan are kept under
 `docs/superpowers/`.
