@@ -1,6 +1,6 @@
 # LongMemEval-S 本地证据检索结果
 
-评测日期：2026-09-02
+评测日期：2026-09-03
 
 ## 先看结论
 
@@ -12,23 +12,29 @@ LongMemEval-S 的 500 条记录。
 470 条有答案位置标注的问题全部参与检索指标；30 条 abstention 没有证据
 位置，按检索口径跳过。最能说明现状的两组数字是：
 
-- Session Recall-any@5：**75.96%**。多数问题能把至少一个正确会话找进前五。
-- Turn Recall-all@5：**34.47%**。要在前五条消息里找齐全部答案证据，当前词法
-  检索仍明显不足。
+- Session Recall-any@5：**84.04%**。多数问题能把至少一个正确会话找进前五。
+- Turn Recall-all@5：**42.13%**。前五条消息的证据完整率比上一版提高 7.66 个
+  百分点，但跨会话找全仍明显不足。
 
-所以，系统已经具备可靠的长对话候选定位基础，但还没有达到强语义、多证据
-聚合的水平。下一步应该补语义召回和跨会话证据组合，而不是继续增加符号规则。
+本轮修复了一个检索意图错误：`previous chat/conversation/discussion/game`
+原本会被当成“最早历史状态”，使大量 assistant 问题跳过相关性排序、强制按
+时间升序。现在它们被视为对话来源说明；只有 `original`、`earliest`、`history`
+等明确措辞才触发历史状态排序。全量对比中 39 道题的 Session nDCG@5 提升、
+36 道题的 Turn nDCG@5 提升，没有题目的 Recall 或 nDCG 下降。
+
+系统已经具备更可靠的长对话候选定位基础，但还没有达到强语义、多证据聚合的
+水平。下一步应集中补 preference 和跨会话证据组合。
 
 ## 全量结果
 
 | 粒度 | K | Recall any | Recall all | nDCG |
 | --- | ---: | ---: | ---: | ---: |
-| session | 1 | 61.28% | 20.00% | 61.28% |
-| session | 5 | 75.96% | 58.51% | 63.99% |
-| session | 10 | 83.19% | 68.51% | 67.04% |
-| turn | 1 | 36.17% | 12.77% | 36.17% |
-| turn | 5 | 56.81% | 34.47% | 39.82% |
-| turn | 10 | 64.89% | 43.62% | 42.83% |
+| session | 1 | 69.57% | 28.30% | 69.57% |
+| session | 5 | 84.04% | 66.60% | 72.18% |
+| session | 10 | 90.43% | 75.74% | 74.95% |
+| turn | 1 | 42.98% | 19.57% | 42.98% |
+| turn | 5 | 64.47% | 42.13% | 47.36% |
+| turn | 10 | 72.77% | 51.49% | 50.44% |
 
 `Recall any` 表示至少找到一个标注来源；`Recall all` 要求找齐全部标注来源。
 Session 排名按每个会话的首条命中去重；Turn 排名使用数据中的 `has_answer`
@@ -46,15 +52,15 @@ turn；上游旧脚本只索引 user turn，并把这些没有 user 金标的题
 | 问题类型 | Session any@5 | Session all@5 | Turn any@5 | Turn all@5 | Turn nDCG@5 |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | single-session-user | 90.62% | 90.62% | 79.69% | 79.69% | 76.00% |
-| single-session-assistant | 30.36% | 30.36% | 25.00% | 25.00% | 23.02% |
+| single-session-assistant | 98.21% | 98.21% | 89.29% | 89.29% | 86.29% |
 | single-session-preference | 63.33% | 63.33% | 33.33% | 23.33% | 24.44% |
 | temporal-reasoning | 76.38% | 51.18% | 54.33% | 30.71% | 37.03% |
 | knowledge-update | 80.56% | 63.89% | 62.50% | 38.89% | 41.48% |
 | multi-session | 89.26% | 57.85% | 64.46% | 19.01% | 34.22% |
 
-最稳定的是用户在单个会话里直接说出的事实。最弱的是偏好归纳，以及需要从多个
-会话找齐证据的问题。Assistant 侧事实也明显弱于 User 侧事实，说明只靠问题与原文
-的字面重合不够。
+单会话 user 与 assistant 事实现在都较稳定。最弱的是偏好归纳，以及需要从多个
+会话找齐证据的问题；multi-session 的 Session any@5 已经很高，但 Turn all@5
+仍只有 19.01%，说明主要瓶颈已经从“找到话题”转向“找齐来源”。
 
 ## 本次到底测了什么
 
@@ -101,7 +107,7 @@ turn；上游旧脚本只索引 user turn，并把这些没有 user 金标的题
 ```powershell
 .\.venv\Scripts\python.exe scripts\run_longmemeval.py `
   --data artifacts\longmemeval\data\longmemeval_s_cleaned.json `
-  --output-dir artifacts\longmemeval\full-500 `
+  --output-dir artifacts\longmemeval\conversation-reference-full-500 `
   --cutoffs 1,5,10
 ```
 
@@ -111,12 +117,12 @@ turn；上游旧脚本只索引 user turn，并把这些没有 user 金标的题
 - `summary.json`：配置、数据哈希、总指标、六类分项和延迟；
 - `report.md`：人类可读总表。
 
-最终复跑的纯搜索阶段平均延迟为 166.72 ms，P95 为 336.40 ms。它不包含数据
+最终复跑的纯搜索阶段平均延迟为 138.62 ms，P95 为 320.96 ms。它不包含数据
 下载和每题数据库写入时间，因此只用于同一实现的本地回归比较。
 
 ## 接下来优先改什么
 
-1. 为 preference、assistant fact 和同义表达增加真正的语义候选通道；
+1. 为 preference 和同义表达增加真正的语义候选通道；
 2. 对 multi-session、temporal 和 knowledge-update 增加受约束的多证据聚合；
 3. 用这 470 条逐题结果建立失败切片，避免优化一种问题却破坏另一种；
 4. 最后再接统一 reader/judge，单独测答案正确性和 abstention，不与检索指标混算。

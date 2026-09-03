@@ -813,6 +813,55 @@ def test_high_value_neighbor_can_replace_lower_ranked_direct_hit(tmp_path: Path)
     assert contents == ["anchor clue", "The answer is Kyoto."]
 
 
+def test_previous_chat_is_context_not_an_oldest_state_request(tmp_path: Path) -> None:
+    store = MemoryStore(tmp_path / "memory.db")
+    store.initialize()
+    old_distractor = "Our previous chat mentioned a generic restaurant in Bandung."
+    answer = (
+        "Cihampelas Walk restaurant recommendation: Miss Bee Providore serves "
+        "Nasi Goreng."
+    )
+    add_session(
+        store,
+        request_id="request-old-distractor",
+        user_id="user-1",
+        session_id="session-old-distractor",
+        messages=[MessageInput(role="user", timestamp=1_000, content=old_distractor)],
+    )
+    add_session(
+        store,
+        request_id="request-answer",
+        user_id="user-1",
+        session_id="session-answer",
+        messages=[MessageInput(role="assistant", timestamp=2_000, content=answer)],
+    )
+    retrieval = LexicalRetrievalPipeline(
+        store,
+        neighbor_radius=0,
+        lexical_candidate_limit=10,
+    )
+
+    results = retrieval.search(
+        query=(
+            "In our previous chat, which Cihampelas Walk restaurant serves "
+            "Nasi Goreng?"
+        ),
+        user_id="user-1",
+        top_k=1,
+    )
+    explicit_history = retrieval.search(
+        query=(
+            "In our previous chat, what was the original Cihampelas Walk "
+            "restaurant that served Nasi Goreng?"
+        ),
+        user_id="user-1",
+        top_k=1,
+    )
+
+    assert [result.message.content for result in results] == [answer]
+    assert [result.message.content for result in explicit_history] == [old_distractor]
+
+
 def test_evidence_format_keeps_timestamp_role_and_original_content(tmp_path: Path) -> None:
     store = MemoryStore(tmp_path / "memory.db")
     store.initialize()

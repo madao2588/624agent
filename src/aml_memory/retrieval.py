@@ -22,6 +22,16 @@ _HISTORY_STATE_PATTERN = re.compile(
     r"|(?:历史|最初|最早|原来|之前|以前)",
     flags=re.IGNORECASE,
 )
+_EXPLICIT_HISTORY_STATE_PATTERN = re.compile(
+    r"\b(?:history|historical|original|originally|earliest|first)\b"
+    r"|(?:历史|最初|最早|原来)",
+    flags=re.IGNORECASE,
+)
+_CONVERSATION_REFERENCE_PATTERN = re.compile(
+    r"\bprevious\s+(?:chat|conversation|discussion|exchange|game|session)\b"
+    r"|(?:之前|以前)(?:的)?(?:对话|聊天|讨论|交流|游戏|会话)",
+    flags=re.IGNORECASE,
+)
 _PROMPT_INJECTION_QUERY_PATTERN = re.compile(
     r"\bprompt\s+injection\b|(?:提示词注入|恶意指令)",
     flags=re.IGNORECASE,
@@ -265,6 +275,11 @@ def _is_current_state_query(query: str) -> bool:
 
 
 def _is_history_query(query: str) -> bool:
+    if (
+        _CONVERSATION_REFERENCE_PATTERN.search(query) is not None
+        and _EXPLICIT_HISTORY_STATE_PATTERN.search(query) is None
+    ):
+        return False
     return _HISTORY_STATE_PATTERN.search(query) is not None
 
 

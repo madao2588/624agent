@@ -254,7 +254,10 @@ Explicit updates and source-backed structured event changes can create durable
 state relations when the new and prior messages share strong anchors. Current
 queries prefer active or resumed evidence; history queries retain the auditable
 older chain. Cancelled and forgotten memories are kept for explicit history but
-stay out of ordinary recall.
+stay out of ordinary recall. Conversational references such as `previous chat`
+or `previous conversation` use normal relevance ranking; they no longer trigger
+oldest-state ordering unless the question also explicitly asks for the original,
+earliest, or historical state.
 
 Source messages with explicit preference language (`prefer`, `favorite`,
 `avoid`, `dislike`, `喜欢`, `偏爱`) or procedure language (`must`, `before`,

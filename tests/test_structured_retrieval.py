@@ -109,9 +109,11 @@ def test_cancel_resume_and_history_queries_preserve_the_whole_chain(
 
     current = _contents(store, "What is the current Atlas meeting status?")
     history = _contents(store, "What was the original Atlas meeting plan and history?")
+    previous = _contents(store, "What was the previous Atlas meeting plan?")
 
     assert current[:3] == [resumed, cancelled, old]
     assert history[:3] == [old, cancelled, resumed]
+    assert previous[:3] == [old, cancelled, resumed]
     assert store.count_state_relations(user_id="user-1") == 2
 
 
