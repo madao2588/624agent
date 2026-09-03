@@ -7,12 +7,13 @@ from aml_memory.schemas import RetrievalConnectionCreate
 
 
 class FakeQueryExpander:
-    def __init__(self) -> None:
+    def __init__(self, terms: list[str] | None = None) -> None:
         self.calls: list[str] = []
+        self.terms = terms or ["cycling", "bike rides"]
 
     def expand(self, query: str) -> list[str]:
         self.calls.append(query)
-        return ["cycling", "bike rides"]
+        return self.terms
 
 
 def test_deepseek_connection_expands_search_but_keeps_add_local(
@@ -87,6 +88,70 @@ def test_deepseek_connection_expands_search_but_keeps_add_local(
     assert status.json()["capability"] == "query-expansion"
     assert removed.json() == {"success": True}
     assert b"deepseek-test-secret" not in database_path.read_bytes()
+
+
+def test_deepseek_connection_supplements_a_partial_local_match(tmp_path: Path) -> None:
+    expander = FakeQueryExpander(["brake pads", "replace"])
+    app = create_app(
+        database_path=tmp_path / "memory.db",
+        neighbor_radius=0,
+        connection_query_expander_factory=lambda _config: expander,
+    )
+
+    with TestClient(app) as client:
+        connected = client.post(
+            "/v1/retrieval-connections",
+            json={"provider": "deepseek", "api_key": "deepseek-test-secret"},
+        )
+        headers = {"X-Retrieval-Connection": connected.json()["connection_id"]}
+        client.post(
+            "/v1/memories/add",
+            headers=headers,
+            json={
+                "request_id": "deepseek-partial-add",
+                "user_id": "deepseek-user",
+                "session_id": "maintenance-session",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "My bicycle needs maintenance before spring.",
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "Replace the worn brake pads next week.",
+                    },
+                ],
+            },
+        )
+        searched = client.post(
+            "/v1/memories/search",
+            headers=headers,
+            json={
+                "query": "What bicycle maintenance is pending?",
+                "user_id": "deepseek-user",
+                "top_k": 3,
+            },
+        )
+        diagnostics = client.post(
+            "/v1/memories/search/diagnostics",
+            headers=headers,
+            json={
+                "query": "What bicycle maintenance is pending?",
+                "user_id": "deepseek-user",
+                "top_k": 3,
+            },
+        )
+
+    contents = [item["content"] for item in searched.json()["data"]]
+    assert searched.status_code == 200
+    assert any("bicycle needs maintenance" in content for content in contents)
+    assert any("Replace the worn brake pads" in content for content in contents)
+    detail = next(
+        item
+        for item in diagnostics.json()["data"]
+        if "Replace the worn brake pads" in item["content"]
+    )
+    assert "model-expanded" in detail["reasons"]
 
 
 def test_old_embedding_routes_and_header_remain_available(tmp_path: Path) -> None:

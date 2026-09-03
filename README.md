@@ -118,7 +118,10 @@ The playground starts in free local lexical mode. Open the collapsed
 OpenAI-compatible endpoint. **Test and connect** performs one real provider
 probe. Embedding providers switch subsequent Add/Search calls to BM25 + Dense
 fusion. DeepSeek instead expands only each Search question into related terms;
-the resulting lexical search remains local and Add never calls DeepSeek.
+the resulting lexical search remains local and Add never calls DeepSeek. Model
+terms now supplement a partial BM25 match instead of being discarded as soon as
+one local result exists. Supplemental evidence is accepted only from a leading
+matched session or through a source-text entity anchor.
 
 The API key is never written to SQLite, API responses, or application logs. By
 default the browser keeps only an opaque connection ID in `sessionStorage`.

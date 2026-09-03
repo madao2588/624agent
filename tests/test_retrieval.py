@@ -165,6 +165,39 @@ def test_query_expansion_retrieves_paraphrased_memory_locally(tmp_path: Path) ->
     assert results[0].reasons == ("lexical", "model-expanded")
 
 
+def test_query_expansion_adds_connected_evidence_when_local_search_is_partial(
+    tmp_path: Path,
+) -> None:
+    store = MemoryStore(tmp_path / "memory.db")
+    store.initialize()
+    overview = "My bicycle needs maintenance before spring."
+    detail = "Replace the worn brake pads next week."
+    add_session(
+        store,
+        request_id="request-maintenance",
+        user_id="user-1",
+        session_id="session-maintenance",
+        messages=[
+            MessageInput(role="user", content=overview),
+            MessageInput(role="assistant", content=detail),
+        ],
+    )
+    retrieval = QueryExpansionRetrievalPipeline(
+        store,
+        FakeQueryExpander(["brake pads", "replace"]),
+        neighbor_radius=0,
+    )
+
+    results = retrieval.search(
+        query="What bicycle maintenance is pending?",
+        user_id="user-1",
+        top_k=3,
+    )
+
+    assert [result.message.content for result in results] == [overview, detail]
+    assert results[1].reasons == ("lexical", "model-expanded")
+
+
 @pytest.mark.parametrize(
     ("query", "content", "expanded_terms"),
     [

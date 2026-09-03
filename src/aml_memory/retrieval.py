@@ -785,20 +785,18 @@ class QueryExpansionRetrievalPipeline:
             intent_query=query,
             strong_terms=strong_terms,
         )
-        if local_results:
+        if not expanded_terms:
             return local_results
 
         expanded_query = " ".join((query, *expanded_terms))
         expanded_results = self._lexical.search(
             query=expanded_query,
             user_id=user_id,
-            top_k=top_k,
+            top_k=min(400, max(20, top_k * 4)),
             intent_query=query,
             strong_terms=strong_terms,
         )
-        if not expanded_terms:
-            return expanded_results
-        return [
+        tagged_expanded = [
             ScoredMessage(
                 message=result.message,
                 score=result.score,
@@ -806,6 +804,50 @@ class QueryExpansionRetrievalPipeline:
             )
             for result in expanded_results
         ]
+        if not local_results:
+            return tagged_expanded[:top_k]
+
+        local_ids = {result.message.id for result in local_results}
+        local_sessions = {
+            result.message.session_id for result in local_results[: min(10, top_k)]
+        }
+        bridge_tokens = {
+            token
+            for term in _bridge_terms(query=query, direct_results=local_results)
+            for token in lexical_terms(term)
+        }
+        connected_expanded = [
+            result
+            for result in tagged_expanded
+            if result.message.id in local_ids
+            or result.message.session_id in local_sessions
+            or bridge_tokens.intersection(lexical_terms(result.message.content))
+        ]
+        if {result.message.id for result in connected_expanded}.issubset(local_ids):
+            return local_results
+
+        messages = {result.message.id: result.message for result in local_results}
+        scores: dict[str, float] = {}
+        reasons = {result.message.id: result.reasons for result in local_results}
+        for ranking in (local_results, connected_expanded):
+            for rank, result in enumerate(ranking, start=1):
+                message_id = result.message.id
+                messages[message_id] = result.message
+                scores[message_id] = scores.get(message_id, 0.0) + (1.0 / (60 + rank))
+                reasons[message_id] = tuple(
+                    dict.fromkeys((*reasons.get(message_id, ()), *result.reasons))
+                )
+        max_score = max(scores.values())
+        fused = [
+            ScoredMessage(
+                message=messages[message_id],
+                score=score / max_score,
+                reasons=reasons[message_id],
+            )
+            for message_id, score in scores.items()
+        ]
+        fused.sort(key=lambda result: (-result.score, result.message.sequence))
+        return fused[:top_k]
 
 
 class HybridRetrievalPipeline:

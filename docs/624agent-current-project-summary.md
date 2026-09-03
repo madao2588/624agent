@@ -1,6 +1,6 @@
 # 624agent 当前项目总结
 
-更新日期：2026-09-02
+更新日期：2026-09-03
 
 当前阶段：候选实现已完成公开数据全量证据评测，尚未冻结为正式参评版本
 
@@ -51,7 +51,7 @@ Add 请求
   → 返回当前 user_id 的原始消息
 ```
 
-evaluation 模式会先让固定的 `gpt-4o-mini` 生成有限的检索词；模型输出只参与找证据，不会作为证据或答案返回。
+evaluation 模式会先让固定的 `gpt-4o-mini` 生成有限的检索词；模型输出只参与找证据，不会作为证据或答案返回。模型扩展现在不仅处理“本地完全没命中”的问题，也会补齐已经命中会话中的遗漏消息；补充结果必须来自领先命中的会话，或与已有证据共享原文实体锚点。
 
 ## 现在具备的能力
 
@@ -112,7 +112,7 @@ evaluation 模式会先让固定的 `gpt-4o-mini` 生成有限的检索词；模
 
 | 检查 | 结果 |
 | --- | --- |
-| `python -m pytest -q` | 178 passed |
+| `python -m pytest -q` | 180 passed |
 | `python -m ruff check .` | 通过 |
 | `python -m mypy src scripts` | 29 个源码文件无类型错误 |
 | `python -m compileall -q src tests scripts` | 通过 |
