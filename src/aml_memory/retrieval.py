@@ -22,6 +22,21 @@ _HISTORY_STATE_PATTERN = re.compile(
     r"|(?:历史|最初|最早|原来|之前|以前)",
     flags=re.IGNORECASE,
 )
+_PRIOR_STATE_PATTERN = re.compile(
+    r"\b(?:previous|previously|before|earlier|formerly|used\s+to|initially|"
+    r"at\s+first|when\b.{0,48}\b(?:start|started|began))\b"
+    r"|(?:以前|之前|过去|曾经|原来|最初|先前|刚开始)",
+    flags=re.IGNORECASE,
+)
+_EXPLICIT_TEMPORAL_COMPARISON_PATTERN = re.compile(
+    r"\b(?:previous|previously|originally)\b.{0,160}\bbefore\b.{0,80}"
+    r"\b(?:current|currently|now)\b"
+    r"|\b(?:previous|previously|originally|used\s+to)\b.{0,160}"
+    r"\b(?:and|but|versus|vs\.?)(?:\s+what)?\b.{0,80}"
+    r"\b(?:current|currently|now)\b"
+    r"|(?:以前|之前|原来|过去|曾经).{0,120}(?:现在|目前|当前)",
+    flags=re.IGNORECASE,
+)
 _EXPLICIT_HISTORY_STATE_PATTERN = re.compile(
     r"\b(?:history|historical|original|originally|earliest|first)\b"
     r"|(?:历史|最初|最早|原来)",
@@ -51,6 +66,27 @@ _EXPLICIT_AGE_FACT_PATTERN = re.compile(
     r"|(?:\d{1,3}|[零〇一二两三四五六七八九十百]{1,4})\s*岁",
     flags=re.IGNORECASE,
 )
+_FREQUENCY_QUERY_PATTERN = re.compile(
+    r"\bhow\s+often\b|(?:多久(?:一次)?|多长时间(?:一次)?|频率)",
+    flags=re.IGNORECASE,
+)
+_EXPLICIT_FREQUENCY_FACT_PATTERN = re.compile(
+    r"\b(?:daily|weekly|monthly|yearly|"
+    r"every\s+(?:other\s+|\d+\s+)?(?:day|week|month|year|"
+    r"monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?|"
+    r"(?:once|twice|\d+\s+times?)\s+(?:a|an|per|each)\s+"
+    r"(?:day|week|month|year))\b"
+    r"|(?:每天|每日|每周|每星期|每月|每年|每隔(?:一|两|二|\d+)?(?:天|周|星期|月)|"
+    r"(?:一|两|二|三|四|五|六|七|八|九|十|\d+)次[/\uff0f每](?:天|周|月|年))",
+    flags=re.IGNORECASE,
+)
+_CJK_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
+_CJK_TEMPORAL_MARKER_PATTERN = re.compile(
+    r"(?:以前|之前|过去|曾经|原来|最初|先前|刚开始|现在|目前|当前|最新|如今)"
+)
+_QUERY_PUNCTUATION_PATTERN = re.compile(
+    r"[?\uff1f!\uff01,\uff0c\u3002;\uff1b:\uff1a]+"
+)
 _PROMPT_INJECTION_QUERY_PATTERN = re.compile(
     r"\bprompt\s+injection\b|(?:提示词注入|恶意指令)",
     flags=re.IGNORECASE,
@@ -61,6 +97,30 @@ _CJK_EXPANDED_TERM_PREFIX = re.compile(
 )
 _LOW_SIGNAL_EXPANDED_TERMS = frozenset(
     {"current", "latest", "now", "recent", "当前", "最新", "现在", "最近"}
+)
+_TEMPORAL_COMPONENT_MARKERS = frozenset(
+    {
+        "at first",
+        "before",
+        "current",
+        "currently",
+        "earlier",
+        "formerly",
+        "historical",
+        "history",
+        "initially",
+        "latest",
+        "now",
+        "original",
+        "originally",
+        "previous",
+        "previously",
+        "recent",
+        "recently",
+        "started",
+        "today",
+        "used to",
+    }
 )
 _ENGLISH_QUESTION_STOPWORDS = frozenset(
     {
@@ -158,6 +218,7 @@ _LOCAL_QUERY_ALIAS_GROUPS = (
     ("跑步", "run", "running"),
 )
 _QUERY_FACET_KINDS = frozenset({"entity", "alias", "place", "date", "event"})
+_TEMPORAL_SESSION_TURN_LIMIT = 16
 
 
 def _semantic_query_components(query: str) -> tuple[str, ...]:
@@ -174,6 +235,32 @@ def _semantic_query_components(query: str) -> tuple[str, ...]:
         return (f"{subject} current age how old {subject} is",)
     if _CJK_AGE_PROJECTION_PATTERN.search(query) is not None:
         return ("我现在的年龄 我今年几岁",)
+    if _is_temporal_comparison_query(query):
+        if _CJK_PATTERN.search(query) is not None:
+            topic = _CJK_TEMPORAL_MARKER_PATTERN.sub("", query)
+            topic = _QUERY_PUNCTUATION_PATTERN.sub(" ", topic)
+            topic = " ".join(topic.split())
+            if not topic:
+                return ()
+            return (f"过去的状态 {topic}", f"当前的状态 {topic}")
+        topic_terms: list[str] = []
+        seen: set[str] = set()
+        for term in lexical_terms(query):
+            if (
+                term in _ENGLISH_QUESTION_STOPWORDS
+                or term in _TEMPORAL_COMPONENT_MARKERS
+                or term in seen
+            ):
+                continue
+            seen.add(term)
+            topic_terms.append(term)
+        if not topic_terms:
+            return ()
+        topic = " ".join(topic_terms[:24])
+        return (
+            f"previous historical state {topic}",
+            f"current latest state {topic}",
+        )
     return ()
 
 
@@ -232,6 +319,8 @@ def _interleave_session_vector_hits(
     session_vector_hits: list[ScoredMessage],
     *,
     top_k: int,
+    reserved_count: int = 1,
+    session_first: bool = False,
 ) -> list[ScoredMessage]:
     """Reserve an early evidence slot for a missing multi-hop operand."""
 
@@ -239,10 +328,10 @@ def _interleave_session_vector_hits(
         return results[:top_k]
     selected: list[ScoredMessage] = []
     seen: set[str] = set()
-    if results:
+    if results and not session_first:
         selected.append(results[0])
         seen.add(results[0].message.id)
-    for result in session_vector_hits[:1]:
+    for result in session_vector_hits[:reserved_count]:
         if result.message.id in seen or len(selected) >= top_k:
             continue
         selected.append(result)
@@ -395,6 +484,19 @@ def _is_history_query(query: str) -> bool:
     ):
         return False
     return _HISTORY_STATE_PATTERN.search(query) is not None
+
+
+def _is_temporal_comparison_query(query: str) -> bool:
+    if (
+        _CURRENT_STATE_PATTERN.search(query) is None
+        or _PRIOR_STATE_PATTERN.search(query) is None
+    ):
+        return False
+    question_count = query.count("?") + query.count("\uff1f")
+    return (
+        question_count >= 2
+        or _EXPLICIT_TEMPORAL_COMPARISON_PATTERN.search(query) is not None
+    )
 
 
 def _append_reason(reasons: tuple[str, ...], reason: str) -> tuple[str, ...]:
@@ -1069,8 +1171,18 @@ class HybridRetrievalPipeline:
             if hit[1] >= self._minimum_vector_similarity
         ]
 
+        temporal_comparison = _is_temporal_comparison_query(query)
+        age_projection = (
+            _ENGLISH_AGE_PROJECTION_PATTERN.search(query) is not None
+            or _CJK_AGE_PROJECTION_PATTERN.search(query) is not None
+        )
         session_vector_hits: list[tuple[StoredMessage, float]] = []
         if semantic_components and top_k > 1:
+            component_turn_limit = (
+                max(self._session_turn_limit, _TEMPORAL_SESSION_TURN_LIMIT)
+                if temporal_comparison
+                else self._session_turn_limit
+            )
             bridge_hits = _search_session_bridges(
                 self._store,
                 lexical_hits,
@@ -1083,15 +1195,16 @@ class HybridRetrievalPipeline:
                 lexical_hits,
                 limit=self._session_candidate_limit,
             )
-            best_component_scores: dict[str, tuple[StoredMessage, float]] = {}
+            component_rankings: list[list[tuple[StoredMessage, float]]] = []
             for component_vector in query_batch.vectors[1:]:
+                best_component_scores: dict[str, tuple[StoredMessage, float]] = {}
                 for session_rank, session_id in enumerate(candidate_session_ids, start=1):
                     session_hits = self._store.search_vectors(
                         user_id=user_id,
                         session_id=session_id,
                         model=query_batch.model,
                         query_vector=component_vector,
-                        limit=self._session_turn_limit,
+                        limit=component_turn_limit,
                     )
                     for message, similarity in session_hits:
                         if similarity < self._minimum_vector_similarity:
@@ -1100,16 +1213,47 @@ class HybridRetrievalPipeline:
                         previous = best_component_scores.get(message.id)
                         if previous is None or adjusted_score > previous[1]:
                             best_component_scores[message.id] = (message, adjusted_score)
-            explicit_age_scores = {
-                message_id: scored
-                for message_id, scored in best_component_scores.items()
-                if _EXPLICIT_AGE_FACT_PATTERN.search(scored[0].content) is not None
-            }
-            best_component_scores = explicit_age_scores
-            session_vector_hits = sorted(
-                best_component_scores.values(),
-                key=lambda item: (-item[1], item[0].sequence),
-            )
+                if age_projection:
+                    best_component_scores = {
+                        message_id: scored
+                        for message_id, scored in best_component_scores.items()
+                        if _EXPLICIT_AGE_FACT_PATTERN.search(scored[0].content)
+                        is not None
+                    }
+                if (
+                    temporal_comparison
+                    and _FREQUENCY_QUERY_PATTERN.search(query) is not None
+                ):
+                    best_component_scores = {
+                        message_id: scored
+                        for message_id, scored in best_component_scores.items()
+                        if _EXPLICIT_FREQUENCY_FACT_PATTERN.search(scored[0].content)
+                        is not None
+                    }
+                component_rankings.append(
+                    sorted(
+                        best_component_scores.values(),
+                        key=lambda item: (-item[1], item[0].sequence),
+                    )
+                )
+            if temporal_comparison:
+                selected_message_ids: set[str] = set()
+                for ranking in component_rankings:
+                    for scored in ranking:
+                        if scored[0].id in selected_message_ids:
+                            continue
+                        selected_message_ids.add(scored[0].id)
+                        session_vector_hits.append(scored)
+                        break
+            else:
+                session_vector_hits = sorted(
+                    (
+                        scored
+                        for ranking in component_rankings
+                        for scored in ranking
+                    ),
+                    key=lambda item: (-item[1], item[0].sequence),
+                )
 
         messages: dict[str, StoredMessage] = {}
         fused_scores: dict[str, float] = {}
@@ -1238,4 +1382,6 @@ class HybridRetrievalPipeline:
             expanded,
             session_results,
             top_k=top_k,
+            reserved_count=2 if temporal_comparison else 1,
+            session_first=temporal_comparison,
         )

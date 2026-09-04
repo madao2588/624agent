@@ -51,10 +51,49 @@ class FakeQueryExpander:
             ("Alice current age how old Alice is",),
         ),
         ("到我退休的时候，我会多大？", ("我现在的年龄 我今年几岁",)),
+        (
+            "How often do I play tennis with my friends at the local park "
+            "previously? How often do I play now?",
+            (
+                "previous historical state often play tennis friends at local park",
+                "current latest state often play tennis friends at local park",
+            ),
+        ),
+        (
+            "我以前每周在哪里跑步？现在在哪里跑步？",
+            (
+                "过去的状态 我每周在哪里跑步 在哪里跑步",
+                "当前的状态 我每周在哪里跑步 在哪里跑步",
+            ),
+        ),
         ("How old was I when I graduated?", ()),
+        ("Where do I currently keep my old sneakers?", ()),
+        ("What was my previous frequent flyer status?", ()),
+        (
+            "What was my previous frequent flyer status on United Airlines "
+            "before I got the current status?",
+            (
+                "previous historical state frequent flyer status united airlines got",
+                "current latest state frequent flyer status united airlines got",
+            ),
+        ),
+        (
+            "What company is Rachel, an old colleague from my previous company, "
+            "currently working at?",
+            (),
+        ),
+        (
+            "What is the order of airlines I flew with from earliest to latest "
+            "before today?",
+            (),
+        ),
+        (
+            "How long have I been working before I started my current job at NovaTech?",
+            (),
+        ),
     ],
 )
-def test_semantic_query_components_only_decompose_future_age_questions(
+def test_semantic_query_components_only_decompose_supported_multi_fact_questions(
     query: str,
     expected: tuple[str, ...],
 ) -> None:
@@ -1021,6 +1060,133 @@ def test_hybrid_retrieval_finds_a_missing_age_operand_inside_a_candidate_session
     assert next(result for result in results if result.message.content == age).score < (
         results[0].score
     )
+
+
+def test_hybrid_retrieval_finds_previous_and_current_evidence_in_related_sessions(
+    tmp_path: Path,
+) -> None:
+    store = MemoryStore(tmp_path / "memory.db")
+    store.initialize()
+    question = (
+        "How often do I play tennis with my friends at the local park "
+        "previously? How often do I play now?"
+    )
+    previous_component = (
+        "previous historical state often play tennis friends at local park"
+    )
+    current_component = "current latest state often play tennis friends at local park"
+    previous = (
+        "When I first started, I played tennis with my friends at the local park "
+        "every Sunday."
+    )
+    current = (
+        "Now I play tennis with my friends at the local park every other Sunday."
+    )
+    store.add(
+        AddRequest(
+            request_id="request-previous-tennis",
+            user_id="user-1",
+            session_id="session-previous-tennis",
+            messages=[
+                MessageInput(role="user", content=previous),
+                *[
+                    MessageInput(
+                        role="assistant",
+                        content=(
+                            "I will play tennis with friends at the park this Sunday "
+                            f"and need equipment tip {index}."
+                        ),
+                    )
+                    for index in range(5)
+                ],
+            ],
+        ),
+        embeddings=EmbeddingBatch(
+            model="semantic-test",
+            vectors=(
+                (0.0, 0.8, 0.0, 0.6),
+                *((0.0, 1.0, 0.0, 0.0) for _index in range(5)),
+            ),
+        ),
+    )
+    store.add(
+        AddRequest(
+            request_id="request-current-tennis",
+            user_id="user-1",
+            session_id="session-current-tennis",
+            messages=[
+                MessageInput(role="user", content=current),
+                *[
+                    MessageInput(
+                        role="assistant",
+                        content=(
+                            "I am playing tennis with friends at the park this Sunday "
+                            f"and need equipment tip {index}."
+                        ),
+                    )
+                    for index in range(5)
+                ],
+            ],
+        ),
+        embeddings=EmbeddingBatch(
+            model="semantic-test",
+            vectors=(
+                (0.0, 0.0, 0.8, 0.6),
+                *((0.0, 0.0, 1.0, 0.0) for _index in range(5)),
+            ),
+        ),
+    )
+    for index in range(4):
+        store.add(
+            AddRequest(
+                request_id=f"request-tennis-noise-{index}",
+                user_id="user-1",
+                session_id=f"session-tennis-noise-{index}",
+                messages=[
+                    MessageInput(
+                        role="user",
+                        content=f"Tennis equipment discussion for local park visit {index}.",
+                    )
+                ],
+            ),
+            embeddings=EmbeddingBatch(
+                model="semantic-test",
+                vectors=((1.0, 0.0, 0.0, 0.0),),
+            ),
+        )
+    store.add(
+        AddRequest(
+            request_id="request-other-user-tennis",
+            user_id="user-2",
+            session_id="session-other-user-tennis",
+            messages=[MessageInput(role="user", content="I play tennis every day.")],
+        ),
+        embeddings=EmbeddingBatch(
+            model="semantic-test",
+            vectors=((0.0, 1.0, 0.0, 0.0),),
+        ),
+    )
+    retrieval = HybridRetrievalPipeline(
+        store,
+        FakeEmbedder(
+            {
+                question: (1.0, 0.0, 0.0, 0.0),
+                previous_component: (0.0, 1.0, 0.0, 0.0),
+                current_component: (0.0, 0.0, 1.0, 0.0),
+            }
+        ),
+        neighbor_radius=0,
+    )
+
+    results = retrieval.search(query=question, user_id="user-1", top_k=5)
+
+    assert {result.message.content for result in results[:2]} == {previous, current}
+    assert all(
+        result.reasons == ("session-vector",)
+        for result in results
+        if result.message.content in {previous, current}
+    )
+    assert {result.message.user_id for result in results} == {"user-1"}
 
 
 def test_rrf_prioritizes_a_candidate_found_by_both_retrievers(tmp_path: Path) -> None:

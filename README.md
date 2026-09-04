@@ -134,6 +134,15 @@ sessions for an explicit current-age statement. The derived query never guesses
 the age or answer, and source memory text is not sent to an external query
 expander. Diagnostics label this route `session-vector`.
 
+The same bounded second stage now handles explicit previous-versus-current
+comparisons. It requires either two question clauses or an unambiguous paired
+construction such as "previous ... before ... current"; incidental phrases like
+"my previous company" do not activate it. For frequency questions, only source
+turns containing an actual recurrence (for example, weekly or every other week)
+can occupy the two reserved evidence slots. This keeps a one-off Sunday mention
+from masquerading as an answer to "how often". The path retrieves source text
+only; it does not calculate or invent the final answer.
+
 Local semantic text never leaves the machine. External-provider API keys are
 never written to SQLite, API responses, or application logs. By
 default the browser keeps only an opaque connection ID in `sessionStorage`.
