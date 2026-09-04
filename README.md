@@ -127,6 +127,13 @@ terms now supplement a partial BM25 match instead of being discarded as soon as
 one local result exists. Supplemental evidence is accepted only from a leading
 matched session or through a source-text entity anchor.
 
+The hybrid path also has a narrow session-to-turn decomposition for prospective
+age questions. It keeps the direct event evidence first, uses that source only
+as a local FTS topic bridge to shortlist related sessions, and searches those
+sessions for an explicit current-age statement. The derived query never guesses
+the age or answer, and source memory text is not sent to an external query
+expander. Diagnostics label this route `session-vector`.
+
 Local semantic text never leaves the machine. External-provider API keys are
 never written to SQLite, API responses, or application logs. By
 default the browser keeps only an opaque connection ID in `sessionStorage`.

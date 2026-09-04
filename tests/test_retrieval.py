@@ -10,6 +10,7 @@ from aml_memory.retrieval import (
     HybridRetrievalPipeline,
     LexicalRetrievalPipeline,
     QueryExpansionRetrievalPipeline,
+    _semantic_query_components,
 )
 from aml_memory.schemas import AddRequest, MessageInput
 from aml_memory.store import MemoryStore
@@ -36,6 +37,28 @@ class FakeQueryExpander:
     def expand(self, query: str) -> list[str]:
         self.calls.append(query)
         return self.terms
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "How many years will I be when my friend Rachel gets married?",
+            ("my current age how old I am",),
+        ),
+        (
+            "How old will Alice be when she graduates?",
+            ("Alice current age how old Alice is",),
+        ),
+        ("到我退休的时候，我会多大？", ("我现在的年龄 我今年几岁",)),
+        ("How old was I when I graduated?", ()),
+    ],
+)
+def test_semantic_query_components_only_decompose_future_age_questions(
+    query: str,
+    expected: tuple[str, ...],
+) -> None:
+    assert _semantic_query_components(query) == expected
 
 
 def test_query_expansion_pipeline_applies_frozen_candidate_and_graph_limits(
@@ -917,6 +940,87 @@ def test_hybrid_retrieval_finds_a_semantic_paraphrase_without_shared_words(
     results = retrieval.search(query=query, user_id="user-1", top_k=1)
 
     assert [result.message.content for result in results] == [memory]
+
+
+def test_hybrid_retrieval_finds_a_missing_age_operand_inside_a_candidate_session(
+    tmp_path: Path,
+) -> None:
+    store = MemoryStore(tmp_path / "memory.db")
+    store.initialize()
+    question = "How many years will I be when my friend Rachel gets married?"
+    age_component = "my current age how old I am"
+    wedding = (
+        "While discussing skincare routines, I mentioned that my friend Rachel "
+        "is getting married next year."
+    )
+    age = "I'm 32, so I'm in my 30s."
+    store.add(
+        AddRequest(
+            request_id="request-wedding",
+            user_id="user-1",
+            session_id="session-wedding",
+            messages=[MessageInput(role="user", content=wedding)],
+        ),
+        embeddings=EmbeddingBatch(
+            model="semantic-test",
+            vectors=((0.9, 0.0, 0.43589),),
+        ),
+    )
+    for index in range(12):
+        store.add(
+            AddRequest(
+                request_id=f"request-distractor-{index}",
+                user_id="user-1",
+                session_id=f"session-distractor-{index}",
+                messages=[
+                    MessageInput(
+                        role="user",
+                        content=f"General discussion about age and life stage {index}.",
+                    )
+                ],
+            ),
+            embeddings=EmbeddingBatch(
+                model="semantic-test",
+                vectors=((0.7, 0.71414, 0.0),),
+            ),
+        )
+    store.add(
+        AddRequest(
+            request_id="request-age",
+            user_id="user-1",
+            session_id="session-age",
+            messages=[
+                MessageInput(role="assistant", content="Let's discuss skincare routines."),
+                MessageInput(role="user", content=age),
+            ],
+        ),
+        embeddings=EmbeddingBatch(
+            model="semantic-test",
+            vectors=((0.11, 0.0, 0.99393), (0.1, 0.99499, 0.0)),
+        ),
+    )
+    retrieval = HybridRetrievalPipeline(
+        store,
+        FakeEmbedder(
+            {
+                question: (1.0, 0.0, 0.0),
+                age_component: (0.0, 1.0, 0.0),
+            }
+        ),
+        neighbor_radius=0,
+    )
+
+    results = retrieval.search(query=question, user_id="user-1", top_k=5)
+
+    contents = {result.message.content for result in results}
+    assert wedding in contents
+    assert age in contents
+    assert next(result for result in results if result.message.content == age).reasons == (
+        "session-vector",
+    )
+    assert next(result for result in results if result.message.content == age).score < (
+        results[0].score
+    )
 
 
 def test_rrf_prioritizes_a_candidate_found_by_both_retrievers(tmp_path: Path) -> None:

@@ -32,6 +32,25 @@ _CONVERSATION_REFERENCE_PATTERN = re.compile(
     r"|(?:之前|以前)(?:的)?(?:对话|聊天|讨论|交流|游戏|会话)",
     flags=re.IGNORECASE,
 )
+_ENGLISH_AGE_PROJECTION_PATTERN = re.compile(
+    r"\b(?:how\s+many\s+years(?:\s+old)?\s+will|how\s+old\s+will|"
+    r"what\s+age\s+will)\s+"
+    r"(?P<subject>[A-Za-z][A-Za-z'-]*(?:\s+[A-Za-z][A-Za-z'-]*){0,2})"
+    r"\s+be\b.*\bwhen\b",
+    flags=re.IGNORECASE,
+)
+_CJK_AGE_PROJECTION_PATTERN = re.compile(
+    r"(?:(?:几岁|多大).*(?:当|到).*(?:时|时候)|"
+    r"(?:当|到).*(?:时|时候).*(?:几岁|多大))"
+)
+_EXPLICIT_AGE_FACT_PATTERN = re.compile(
+    r"\b(?:(?:i(?:['\u2019]m|\s+am)|you(?:['\u2019]re|\s+are)|"
+    r"he(?:['\u2019]s|\s+is)|she(?:['\u2019]s|\s+is)|"
+    r"they(?:['\u2019]re|\s+are)|"
+    r"[A-Za-z][\w'-]+\s+is)\s+\d{1,3}|\d{1,3}\s+years?\s+old)\b"
+    r"|(?:\d{1,3}|[零〇一二两三四五六七八九十百]{1,4})\s*岁",
+    flags=re.IGNORECASE,
+)
 _PROMPT_INJECTION_QUERY_PATTERN = re.compile(
     r"\bprompt\s+injection\b|(?:提示词注入|恶意指令)",
     flags=re.IGNORECASE,
@@ -139,6 +158,101 @@ _LOCAL_QUERY_ALIAS_GROUPS = (
     ("跑步", "run", "running"),
 )
 _QUERY_FACET_KINDS = frozenset({"entity", "alias", "place", "date", "event"})
+
+
+def _semantic_query_components(query: str) -> tuple[str, ...]:
+    """Name missing facts for narrow multi-hop questions without answering them."""
+
+    match = _ENGLISH_AGE_PROJECTION_PATTERN.search(query)
+    if match is not None:
+        subject = match.group("subject").strip()
+        normalized_subject = subject.casefold()
+        if normalized_subject == "i":
+            return ("my current age how old I am",)
+        if normalized_subject == "you":
+            return ("your current age how old you are",)
+        return (f"{subject} current age how old {subject} is",)
+    if _CJK_AGE_PROJECTION_PATTERN.search(query) is not None:
+        return ("我现在的年龄 我今年几岁",)
+    return ()
+
+
+def _candidate_session_ids(
+    bridge_hits: list[tuple[StoredMessage, float]],
+    vector_hits: list[tuple[StoredMessage, float]],
+    lexical_hits: list[tuple[StoredMessage, float]],
+    *,
+    limit: int,
+) -> tuple[str, ...]:
+    """Keep a session-diverse shortlist led by local topic bridges."""
+
+    session_ids: list[str] = []
+    seen: set[str] = set()
+    for ranking in (bridge_hits, vector_hits, lexical_hits):
+        for message, _score in ranking:
+            if message.session_id in seen:
+                continue
+            seen.add(message.session_id)
+            session_ids.append(message.session_id)
+            if len(session_ids) >= limit:
+                return tuple(session_ids)
+    return tuple(session_ids)
+
+
+def _search_session_bridges(
+    store: RetrievalStore,
+    lexical_hits: list[tuple[StoredMessage, float]],
+    *,
+    user_id: str,
+    session_limit: int,
+) -> list[tuple[StoredMessage, float]]:
+    """Find conversations sharing the concrete topic of top lexical anchors."""
+
+    bridged: list[tuple[StoredMessage, float]] = []
+    seen_messages: set[str] = set()
+    for anchor, _score in lexical_hits[:2]:
+        bounded_anchor = " ".join(lexical_terms(anchor.content)[:48])
+        anchor_query = build_fts_query(bounded_anchor)
+        if anchor_query is None:
+            continue
+        for message, lexical_score in store.search_fts(
+            user_id=user_id,
+            fts_query=anchor_query,
+            limit=max(20, session_limit * 4),
+        ):
+            if message.id in seen_messages:
+                continue
+            seen_messages.add(message.id)
+            bridged.append((message, lexical_score))
+    return bridged
+
+
+def _interleave_session_vector_hits(
+    results: list[ScoredMessage],
+    session_vector_hits: list[ScoredMessage],
+    *,
+    top_k: int,
+) -> list[ScoredMessage]:
+    """Reserve an early evidence slot for a missing multi-hop operand."""
+
+    if not session_vector_hits:
+        return results[:top_k]
+    selected: list[ScoredMessage] = []
+    seen: set[str] = set()
+    if results:
+        selected.append(results[0])
+        seen.add(results[0].message.id)
+    for result in session_vector_hits[:1]:
+        if result.message.id in seen or len(selected) >= top_k:
+            continue
+        selected.append(result)
+        seen.add(result.message.id)
+    for result in results:
+        if result.message.id in seen or len(selected) >= top_k:
+            continue
+        selected.append(result)
+        seen.add(result.message.id)
+    return selected
 
 
 def build_fts_query(query: str) -> str | None:
@@ -878,6 +992,8 @@ class HybridRetrievalPipeline:
         vector_candidate_limit: int | None = None,
         minimum_vector_similarity: float = 0.18,
         vector_rrf_weight: float = 0.1,
+        session_candidate_limit: int = 10,
+        session_turn_limit: int = 4,
         rrf_k: int = 60,
     ) -> None:
         if neighbor_radius < 0:
@@ -890,6 +1006,10 @@ class HybridRetrievalPipeline:
             raise ValueError("minimum_vector_similarity must be between 0 and 1")
         if not 0.0 < vector_rrf_weight <= 1.0:
             raise ValueError("vector_rrf_weight must be between 0 and 1")
+        if session_candidate_limit <= 0:
+            raise ValueError("session_candidate_limit must be positive")
+        if session_turn_limit <= 0:
+            raise ValueError("session_turn_limit must be positive")
         if rrf_k <= 0:
             raise ValueError("rrf_k must be positive")
         self._store = store
@@ -899,6 +1019,8 @@ class HybridRetrievalPipeline:
         self._vector_candidate_limit = vector_candidate_limit
         self._minimum_vector_similarity = minimum_vector_similarity
         self._vector_rrf_weight = vector_rrf_weight
+        self._session_candidate_limit = session_candidate_limit
+        self._session_turn_limit = session_turn_limit
         self._rrf_k = rrf_k
 
     @staticmethod
@@ -933,22 +1055,70 @@ class HybridRetrievalPipeline:
             if _is_grounded_lexical_hit(query, hit[0], strong_terms=strong_terms)
         ]
 
-        query_batch = self._embedder.embed([query])
-        vector_hits = self._store.search_vectors(
+        semantic_components = _semantic_query_components(query)
+        query_batch = self._embedder.embed([query, *semantic_components])
+        raw_vector_hits = self._store.search_vectors(
             user_id=user_id,
             model=query_batch.model,
             query_vector=query_batch.vectors[0],
             limit=vector_limit,
         )
         vector_hits = [
-            hit for hit in vector_hits if hit[1] >= self._minimum_vector_similarity
+            hit
+            for hit in raw_vector_hits
+            if hit[1] >= self._minimum_vector_similarity
         ]
+
+        session_vector_hits: list[tuple[StoredMessage, float]] = []
+        if semantic_components and top_k > 1:
+            bridge_hits = _search_session_bridges(
+                self._store,
+                lexical_hits,
+                user_id=user_id,
+                session_limit=self._session_candidate_limit,
+            )
+            candidate_session_ids = _candidate_session_ids(
+                bridge_hits,
+                raw_vector_hits,
+                lexical_hits,
+                limit=self._session_candidate_limit,
+            )
+            best_component_scores: dict[str, tuple[StoredMessage, float]] = {}
+            for component_vector in query_batch.vectors[1:]:
+                for session_rank, session_id in enumerate(candidate_session_ids, start=1):
+                    session_hits = self._store.search_vectors(
+                        user_id=user_id,
+                        session_id=session_id,
+                        model=query_batch.model,
+                        query_vector=component_vector,
+                        limit=self._session_turn_limit,
+                    )
+                    for message, similarity in session_hits:
+                        if similarity < self._minimum_vector_similarity:
+                            continue
+                        adjusted_score = similarity / (1.0 + 0.05 * (session_rank - 1))
+                        previous = best_component_scores.get(message.id)
+                        if previous is None or adjusted_score > previous[1]:
+                            best_component_scores[message.id] = (message, adjusted_score)
+            explicit_age_scores = {
+                message_id: scored
+                for message_id, scored in best_component_scores.items()
+                if _EXPLICIT_AGE_FACT_PATTERN.search(scored[0].content) is not None
+            }
+            best_component_scores = explicit_age_scores
+            session_vector_hits = sorted(
+                best_component_scores.values(),
+                key=lambda item: (-item[1], item[0].sequence),
+            )
 
         messages: dict[str, StoredMessage] = {}
         fused_scores: dict[str, float] = {}
         fused_reasons: dict[str, tuple[str, ...]] = {}
-        for route, ranking in (("lexical", lexical_hits), ("vector", vector_hits)):
-            route_weight = self._vector_rrf_weight if route == "vector" else 1.0
+        routes = (
+            ("lexical", lexical_hits, 1.0),
+            ("vector", vector_hits, self._vector_rrf_weight),
+        )
+        for route, ranking, route_weight in routes:
             for rank, (message, _source_score) in enumerate(ranking, start=1):
                 messages[message.id] = message
                 fused_scores[message.id] = fused_scores.get(message.id, 0.0) + (
@@ -1038,9 +1208,34 @@ class HybridRetrievalPipeline:
             query=query,
             user_id=user_id,
         )
-        return _filter_unsafe_memories(
+        expanded = _filter_unsafe_memories(
             self._store,
             expanded,
             query=query,
             user_id=user_id,
-        )[:top_k]
+        )
+        session_results = [
+            ScoredMessage(
+                message=message,
+                score=1.0 / (rank + 1),
+                reasons=("session-vector",),
+            )
+            for rank, (message, _score) in enumerate(session_vector_hits, start=1)
+        ]
+        session_results = _filter_forgotten_memories(
+            self._store,
+            session_results,
+            query=query,
+            user_id=user_id,
+        )
+        session_results = _filter_unsafe_memories(
+            self._store,
+            session_results,
+            query=query,
+            user_id=user_id,
+        )
+        return _interleave_session_vector_hits(
+            expanded,
+            session_results,
+            top_k=top_k,
+        )

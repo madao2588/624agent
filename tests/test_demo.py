@@ -57,6 +57,7 @@ def test_demo_page_is_public_accessible_and_not_cached(tmp_path: Path) -> None:
     assert 'DeepSeek 双语查询扩展' in page
     assert '没有找到能支持这个问题的记忆。' in page
     assert 'DeepSeek 双语扩展找回' in page
+    assert 'if (reason === "session-vector") return "跨会话补全证据";' in page
     assert '约 220 MB' in page
     assert '记忆正文不会离开这台设备' in page
     assert '本地模式设置仍保留。' in page

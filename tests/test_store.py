@@ -133,6 +133,50 @@ def test_vectors_persist_across_store_instances_and_enforce_user_isolation(
     assert {message.user_id for message, _score in hits} == {"user-a"}
 
 
+def test_vector_search_can_be_scoped_to_one_users_session(tmp_path: Path) -> None:
+    store = MemoryStore(tmp_path / "memory.db")
+    store.initialize()
+    for session_id, vector in (
+        ("session-target", (0.8, 0.2)),
+        ("session-other", (1.0, 0.0)),
+    ):
+        store.add(
+            make_request(
+                request_id=f"request-{session_id}",
+                session_id=session_id,
+                content=f"memory from {session_id}",
+            ),
+            embeddings=EmbeddingBatch(
+                model="semantic-test",
+                vectors=(vector, (0.0, 1.0)),
+            ),
+        )
+    store.add(
+        make_request(
+            request_id="request-private-session",
+            user_id="user-2",
+            session_id="session-target",
+            content="another user's private memory",
+        ),
+        embeddings=EmbeddingBatch(
+            model="semantic-test",
+            vectors=((1.0, 0.0), (0.0, 1.0)),
+        ),
+    )
+
+    hits = store.search_vectors(
+        user_id="user-1",
+        session_id="session-target",
+        model="semantic-test",
+        query_vector=(1.0, 0.0),
+        limit=10,
+    )
+
+    assert hits
+    assert {message.session_id for message, _score in hits} == {"session-target"}
+    assert {message.user_id for message, _score in hits} == {"user-1"}
+
+
 def test_invalid_embedding_batch_does_not_partially_write_add(tmp_path: Path) -> None:
     store = MemoryStore(tmp_path / "memory.db")
     store.initialize()

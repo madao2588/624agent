@@ -106,6 +106,7 @@ class RetrievalStore(Protocol):
         self,
         *,
         user_id: str,
+        session_id: str | None = None,
         model: str,
         query_vector: tuple[float, ...],
         limit: int,

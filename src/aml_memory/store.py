@@ -1472,6 +1472,7 @@ class MemoryStore:
         self,
         *,
         user_id: str,
+        session_id: str | None = None,
         model: str,
         query_vector: tuple[float, ...],
         limit: int,
@@ -1488,9 +1489,13 @@ class MemoryStore:
             raise ValueError("query vector must not be a zero vector")
 
         dimensions = len(query_vector)
+        session_clause = "" if session_id is None else " AND m.session_id = ?"
+        parameters: tuple[object, ...] = (user_id, user_id, model, dimensions)
+        if session_id is not None:
+            parameters = (*parameters, session_id)
         with self._connect() as connection:
             rows = connection.execute(
-                """
+                f"""
                 SELECT m.sequence, m.id, m.request_id, m.user_id, m.session_id,
                        m.ordinal, m.role, m.occurred_at_ms, m.content, m.created_at,
                        v.embedding
@@ -1500,8 +1505,9 @@ class MemoryStore:
                   AND m.user_id = ?
                   AND v.model = ?
                   AND v.dimensions = ?
+                  {session_clause}
                 """,
-                (user_id, user_id, model, dimensions),
+                parameters,
             ).fetchall()
 
         ranked = [
