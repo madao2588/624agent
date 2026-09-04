@@ -682,6 +682,7 @@
                   <label for="embedding-provider">检索方式</label>
                   <select id="embedding-provider">
                     <option value="lexical">本地关键词 · 免费</option>
+                    <option value="local">本地语义 · 免费</option>
                     <option value="deepseek">DeepSeek · 查询扩展</option>
                     <option value="openai">OpenAI Embedding</option>
                     <option value="openai-compatible">OpenAI 兼容接口</option>
@@ -714,7 +715,7 @@
               </div>
               <div class="settings-actions">
                 <button class="button button-primary" id="connect-embedding" type="submit">使用本地模式</button>
-                <button class="button button-secondary" id="disconnect-embedding" type="button" disabled>断开并清除 Key</button>
+                <button class="button button-secondary" id="disconnect-embedding" type="button" disabled>断开检索连接</button>
               </div>
             </form>
           </div>
@@ -773,7 +774,8 @@
 
       const EMBEDDING_STORAGE_KEY = "aml-memory-embedding-connection";
       const RETRIEVAL_CONFIG_STORAGE_KEY = "aml-memory-retrieval-config";
-      const RETRIEVAL_PROVIDERS = new Set(["deepseek", "openai", "openai-compatible"]);
+      const LOCAL_EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2";
+      const RETRIEVAL_PROVIDERS = new Set(["local", "deepseek", "openai", "openai-compatible"]);
       const STATE_LABELS = Object.freeze({
         active: "当前记忆",
         history: "历史记忆",
@@ -849,6 +851,10 @@
         const apiKey = typeof value.apiKey === "string" ? value.apiKey.trim() : "";
         const model = typeof value.model === "string" ? value.model.trim() : "";
         const baseUrl = typeof value.baseUrl === "string" ? value.baseUrl.trim() : "";
+        if (value.provider === "local") {
+          if (model && model !== LOCAL_EMBEDDING_MODEL) return null;
+          return { provider: "local", apiKey: "", model: LOCAL_EMBEDDING_MODEL, baseUrl: "" };
+        }
         if (!apiKey || !model || (value.provider === "openai-compatible" && !baseUrl)) return null;
         return { provider: value.provider, apiKey, model, baseUrl };
       }
@@ -1412,10 +1418,12 @@
 
       function updateEmbeddingFields(providerChanged = false) {
         const provider = elements.embeddingProvider.value;
-        const usesApi = provider !== "lexical";
+        const usesLocal = provider === "local";
+        const usesApi = provider !== "lexical" && !usesLocal;
         const usesCustomUrl = provider === "openai-compatible";
         const usesDeepSeek = provider === "deepseek";
         if (providerChanged) {
+          if (usesLocal) elements.embeddingModel.value = LOCAL_EMBEDDING_MODEL;
           if (usesDeepSeek) elements.embeddingModel.value = "deepseek-v4-flash";
           if (provider === "openai") elements.embeddingModel.value = "text-embedding-3-small";
           if (usesCustomUrl) elements.embeddingModel.value = "";
@@ -1427,8 +1435,9 @@
         elements.embeddingApiKey.required = usesApi;
         elements.embeddingBaseUrl.required = usesCustomUrl;
         elements.rememberKeyRow.hidden = !usesApi;
-        elements.connectEmbedding.textContent = usesApi ? "测试并连接" : "使用本地模式";
+        elements.connectEmbedding.textContent = usesLocal ? "加载本地模型" : (usesApi ? "测试并连接" : "使用本地模式");
         if (usesDeepSeek) elements.embeddingHelper.textContent = "只发送搜索问题给 DeepSeek，生成中英双语检索词；不发送记忆正文。";
+        else if (usesLocal) elements.embeddingHelper.textContent = "首次启用会下载约 220 MB 的模型；之后在本机运行，记忆正文不会离开这台设备。";
         else if (usesApi) elements.embeddingHelper.textContent = "向量接口会收到新增记忆和搜索文本；勾选后 Key 仅保存在当前浏览器。";
         else elements.embeddingHelper.textContent = "当前不使用外部 API，也不需要 Key。";
       }
@@ -1437,10 +1446,11 @@
         const metadata = state.embeddingMetadata;
         if (state.embeddingConnectionId && metadata) {
           const queryOnly = metadata.capability === "query-expansion";
-          elements.embeddingModeLabel.textContent = queryOnly ? `DeepSeek 双语查询扩展 · ${metadata.model}` : `向量语义检索 · ${metadata.model}`;
-          elements.embeddingModeDetail.textContent = queryOnly ? "DeepSeek 生成中英检索词，记忆正文仍只在本地检索。" : "BM25 与向量结果融合排序，临时连接闲置后失效。";
+          const localSemantic = metadata.provider === "local";
+          elements.embeddingModeLabel.textContent = queryOnly ? `DeepSeek 双语查询扩展 · ${metadata.model}` : (localSemantic ? "本地语义检索" : `向量语义检索 · ${metadata.model}`);
+          elements.embeddingModeDetail.textContent = queryOnly ? "DeepSeek 生成中英检索词，记忆正文仍只在本地检索。" : (localSemantic ? "BM25 与本地向量融合排序，记忆文本不发送给外部服务。" : "BM25 与向量结果融合排序，临时连接闲置后失效。");
           elements.embeddingModeBadge.textContent = state.savedRetrievalConfig ? "已保存并连接" : "临时连接已启用";
-          elements.settingsModeCopy.textContent = queryOnly ? "DeepSeek 正在做双语查询扩展" : "当前已启用向量语义检索";
+          elements.settingsModeCopy.textContent = queryOnly ? "DeepSeek 正在做双语查询扩展" : (localSemantic ? "当前使用免费的本地语义检索" : "当前已启用向量语义检索");
           elements.disconnectEmbedding.disabled = false;
           return;
         }
@@ -1460,6 +1470,7 @@
 
       async function createRetrievalConnection(config) {
         const payload = { provider: config.provider, api_key: config.apiKey, model: config.model };
+        if (config.provider === "local") delete payload.api_key;
         if (config.provider === "openai-compatible") payload.base_url = config.baseUrl;
         const response = await fetch("/v1/retrieval-connections", {
           method: "POST",
@@ -1490,27 +1501,30 @@
           showStatus("已切换到免费的本地关键词模式。", "success");
           return;
         }
+        const usesLocal = provider === "local";
         const apiKey = elements.embeddingApiKey.value.trim();
-        const model = elements.embeddingModel.value.trim();
+        const model = usesLocal ? LOCAL_EMBEDDING_MODEL : elements.embeddingModel.value.trim();
         const baseUrl = elements.embeddingBaseUrl.value.trim();
-        if (!apiKey || !model || (provider === "openai-compatible" && !baseUrl)) {
+        if ((!usesLocal && !apiKey) || !model || (provider === "openai-compatible" && !baseUrl)) {
           showStatus("请填写当前提供商需要的 Key、模型和地址。", "error");
           return;
         }
-        setButtonLoading(elements.connectEmbedding, true, "正在测试连接");
+        setButtonLoading(elements.connectEmbedding, true, usesLocal ? "正在加载模型" : "正在测试连接");
         try {
           const config = { provider, apiKey, model, baseUrl };
           const metadata = await createRetrievalConnection(config);
-          const shouldRemember = elements.rememberApiKey.checked;
+          const shouldRemember = usesLocal || elements.rememberApiKey.checked;
           const saved = shouldRemember ? saveRetrievalConfig(config) : false;
           if (!shouldRemember) deleteSavedRetrievalConfig();
           if (!saved) elements.embeddingApiKey.value = "";
           renderEmbeddingMode();
-          let message = metadata.capability === "query-expansion"
+          let message = usesLocal
+            ? "本地语义模型已就绪，后续写入和搜索会融合 BM25 与向量结果。"
+            : metadata.capability === "query-expansion"
             ? "DeepSeek 已连接：添加仍在本地，搜索问题会获得语义扩展。"
             : "向量连接测试成功，后续写入和搜索已启用语义检索。";
-          if (saved) message += " Key 已保存在此浏览器。";
-          if (shouldRemember && !saved) message += " 浏览器拒绝保存 Key，下次仍需重新输入。";
+          if (saved && !usesLocal) message += " Key 已保存在此浏览器。";
+          if (shouldRemember && !saved) message += usesLocal ? " 浏览器拒绝保存本地模式设置。" : " 浏览器拒绝保存 Key，下次仍需重新输入。";
           showStatus(message, shouldRemember && !saved ? "error" : "success");
         } catch (error) {
           showStatus(error instanceof Error ? error.message : "连接失败，请检查配置。", "error");
@@ -1531,7 +1545,7 @@
           try { await fetch(`/v1/retrieval-connections/${encodeURIComponent(connectionId)}`, { method: "DELETE" }); }
           catch (_error) { /* Server expiry remains the fallback cleanup. */ }
         }
-        if (showNotice) showStatus("连接和当前浏览器保存的 Key 已清除。", "success");
+        if (showNotice) showStatus("检索连接和当前浏览器保存的设置已清除。", "success");
       }
 
       async function restoreEmbeddingConnection() {
@@ -1551,10 +1565,13 @@
         try {
           await createRetrievalConnection(state.savedRetrievalConfig);
           renderEmbeddingMode();
-          showStatus("已使用当前浏览器保存的 Key 自动重连。", "success");
+          showStatus(state.savedRetrievalConfig.provider === "local" ? "本地语义模型已自动恢复。" : "已使用当前浏览器保存的 Key 自动重连。", "success");
         } catch (error) {
           forgetEmbeddingConnection();
-          showStatus(error instanceof Error ? `${error.message}，保存的 Key 仍保留。` : "自动重连失败，保存的 Key 仍保留。", "error");
+          const retainedMessage = state.savedRetrievalConfig?.provider === "local"
+            ? "本地模式设置仍保留。"
+            : "保存的 Key 仍保留。";
+          showStatus(error instanceof Error ? `${error.message}，${retainedMessage}` : `自动重连失败，${retainedMessage}`, "error");
         } finally {
           setButtonLoading(elements.connectEmbedding, false, "正在自动重连");
           updateEmbeddingFields();

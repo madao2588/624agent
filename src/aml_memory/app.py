@@ -19,7 +19,7 @@ from aml_memory.connections import (
     EmbeddingConnectionRegistry,
     EmbeddingSpaceEmbedder,
 )
-from aml_memory.embeddings import OpenAICompatibleEmbedder
+from aml_memory.embeddings import FastEmbedEmbedder, OpenAICompatibleEmbedder
 from aml_memory.enrichment import OpenAIEvaluationProvider
 from aml_memory.errors import RequestConflictError, RetrievalProviderError
 from aml_memory.formatting import format_evidence
@@ -58,11 +58,15 @@ logger = logging.getLogger("aml_memory")
 DEMO_PAGE = Path(__file__).with_name("demo.html")
 CONNECTION_TEST_TEXT = "AML Memory connection test"
 CONNECTION_TEST_QUERY = "Find memories about a changed meeting plan."
+_DEFAULT_LOCAL_EMBEDDER = FastEmbedEmbedder()
 
 
 def _default_connection_embedder_factory(
     config: EmbeddingConnectionCreate,
 ) -> Embedder:
+    if config.provider == "local":
+        return _DEFAULT_LOCAL_EMBEDDER
+    assert config.api_key is not None
     return OpenAICompatibleEmbedder(
         api_key=config.api_key.get_secret_value(),
         model=config.resolved_model,
@@ -73,6 +77,7 @@ def _default_connection_embedder_factory(
 def _default_connection_query_expander_factory(
     config: RetrievalConnectionCreate,
 ) -> QueryExpander:
+    assert config.api_key is not None
     return DeepSeekQueryExpander(
         api_key=config.api_key.get_secret_value(),
         model=config.resolved_model,

@@ -465,7 +465,12 @@ class MemoryStore:
 
         return AddResult(inserted=True, message_ids=message_ids)
 
-    def add_benchmark_lexical(self, request: AddRequest) -> AddResult:
+    def add_benchmark_lexical(
+        self,
+        request: AddRequest,
+        *,
+        embeddings: EmbeddingBatch | None = None,
+    ) -> AddResult:
         """Persist raw benchmark sources without building facets or relations.
 
         This path exists for large retrieval-only benchmark replays. Production
@@ -473,6 +478,8 @@ class MemoryStore:
         structured recall, and relation expansion stay enabled.
         """
 
+        if embeddings is not None and len(embeddings.vectors) != len(request.messages):
+            raise ValueError("embedding batch must contain one vector per message")
         digest = _payload_hash(request)
         message_ids = tuple(
             _message_id(request.request_id, ordinal)
@@ -489,6 +496,14 @@ class MemoryStore:
                     if str(existing["payload_hash"]) != digest:
                         raise RequestConflictError(
                             f"request_id {request.request_id!r} already has a different payload"
+                        )
+                    if embeddings is not None:
+                        self._write_vectors(
+                            connection,
+                            message_ids=message_ids,
+                            user_id=request.user_id,
+                            embeddings=embeddings,
+                            created_at=_utc_now_text(),
                         )
                     connection.commit()
                     return AddResult(inserted=False, message_ids=message_ids)
@@ -537,6 +552,14 @@ class MemoryStore:
                             request.user_id,
                             lexical_index_text(message.content),
                         ),
+                    )
+                if embeddings is not None:
+                    self._write_vectors(
+                        connection,
+                        message_ids=message_ids,
+                        user_id=request.user_id,
+                        embeddings=embeddings,
+                        created_at=created_at,
                     )
                 connection.commit()
             except Exception:

@@ -877,6 +877,7 @@ class HybridRetrievalPipeline:
         lexical_candidate_limit: int | None = None,
         vector_candidate_limit: int | None = None,
         minimum_vector_similarity: float = 0.18,
+        vector_rrf_weight: float = 0.1,
         rrf_k: int = 60,
     ) -> None:
         if neighbor_radius < 0:
@@ -887,6 +888,8 @@ class HybridRetrievalPipeline:
             raise ValueError("vector_candidate_limit must be positive")
         if not 0.0 <= minimum_vector_similarity <= 1.0:
             raise ValueError("minimum_vector_similarity must be between 0 and 1")
+        if not 0.0 < vector_rrf_weight <= 1.0:
+            raise ValueError("vector_rrf_weight must be between 0 and 1")
         if rrf_k <= 0:
             raise ValueError("rrf_k must be positive")
         self._store = store
@@ -895,6 +898,7 @@ class HybridRetrievalPipeline:
         self._lexical_candidate_limit = lexical_candidate_limit
         self._vector_candidate_limit = vector_candidate_limit
         self._minimum_vector_similarity = minimum_vector_similarity
+        self._vector_rrf_weight = vector_rrf_weight
         self._rrf_k = rrf_k
 
     @staticmethod
@@ -944,10 +948,11 @@ class HybridRetrievalPipeline:
         fused_scores: dict[str, float] = {}
         fused_reasons: dict[str, tuple[str, ...]] = {}
         for route, ranking in (("lexical", lexical_hits), ("vector", vector_hits)):
+            route_weight = self._vector_rrf_weight if route == "vector" else 1.0
             for rank, (message, _source_score) in enumerate(ranking, start=1):
                 messages[message.id] = message
                 fused_scores[message.id] = fused_scores.get(message.id, 0.0) + (
-                    1.0 / (self._rrf_k + rank)
+                    route_weight / (self._rrf_k + rank)
                 )
                 fused_reasons[message.id] = _append_reason(
                     fused_reasons.get(message.id, ()), route
@@ -964,6 +969,15 @@ class HybridRetrievalPipeline:
                 for message_id, score in fused_scores.items()
             ]
         direct_results.sort(key=lambda result: (-result.score, result.message.sequence))
+        direct_results = direct_results[:top_k]
+        direct_results = [
+            ScoredMessage(
+                message=result.message,
+                score=1.0 / rank,
+                reasons=result.reasons,
+            )
+            for rank, result in enumerate(direct_results, start=1)
+        ]
         direct_results = _expand_query_facets(
             self._store,
             direct_results,
@@ -979,6 +993,13 @@ class HybridRetrievalPipeline:
             top_k=top_k,
         )
         direct_results = _expand_intent_tags(
+            self._store,
+            direct_results,
+            query=query,
+            user_id=user_id,
+            top_k=top_k,
+        )
+        direct_results = _expand_entity_bridges(
             self._store,
             direct_results,
             query=query,

@@ -6,11 +6,12 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from aml_memory.app import create_app
+from aml_memory.app import _default_connection_embedder_factory, create_app
 from aml_memory.connections import (
     EmbeddingConnectionNotFoundError,
     EmbeddingConnectionRegistry,
 )
+from aml_memory.embeddings import DEFAULT_LOCAL_EMBEDDING_MODEL, LOCAL_EMBEDDING_BASE_URL
 from aml_memory.models import EmbeddingBatch
 from aml_memory.schemas import EmbeddingConnectionCreate
 
@@ -118,6 +119,76 @@ def test_create_connection_probes_provider_without_returning_or_persisting_key(
     assert secret.encode() not in database_path.read_bytes()
     assert received[0].api_key.get_secret_value() == secret
     assert embedder.calls == [["AML Memory connection test"]]
+
+
+def test_local_connection_needs_no_key_and_uses_the_allowlisted_model(
+    tmp_path: Path,
+) -> None:
+    embedder = FakeEmbedder()
+    received: list[EmbeddingConnectionCreate] = []
+
+    def factory(config: EmbeddingConnectionCreate) -> FakeEmbedder:
+        received.append(config)
+        return embedder
+
+    app = create_app(
+        database_path=tmp_path / "memory.db",
+        connection_embedder_factory=factory,
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/retrieval-connections",
+            json={"provider": "local"},
+        )
+
+    assert response.status_code == 201
+    assert response.json()["provider"] == "local"
+    assert response.json()["capability"] == "embedding"
+    assert response.json()["model"] == DEFAULT_LOCAL_EMBEDDING_MODEL
+    assert response.json()["base_url"] == LOCAL_EMBEDDING_BASE_URL
+    assert received[0].api_key is None
+    assert received[0].resolved_model == DEFAULT_LOCAL_EMBEDDING_MODEL
+    assert embedder.calls == [["AML Memory connection test"]]
+
+
+def test_default_local_connections_share_one_model_instance() -> None:
+    config = EmbeddingConnectionCreate(provider="local")
+
+    first = _default_connection_embedder_factory(config)
+    second = _default_connection_embedder_factory(config)
+
+    assert first is second
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"provider": "local", "api_key": "must-not-be-accepted"},
+        {"provider": "local", "base_url": "https://example.com/v1"},
+        {"provider": "local", "model": "arbitrary/model"},
+        {"provider": "openai"},
+        {
+            "provider": "openai-compatible",
+            "model": "semantic-test",
+            "base_url": "https://embedding.example/v1",
+        },
+        {"provider": "deepseek"},
+    ],
+)
+def test_connections_enforce_local_and_external_credential_boundaries(
+    tmp_path: Path,
+    payload: dict[str, str],
+) -> None:
+    app = create_app(
+        database_path=tmp_path / "memory.db",
+        connection_embedder_factory=lambda _config: FakeEmbedder(),
+    )
+
+    with TestClient(app) as client:
+        response = client.post("/v1/retrieval-connections", json=payload)
+
+    assert response.status_code == 422
 
 
 def test_connection_header_enables_semantic_add_and_search_then_can_be_revoked(

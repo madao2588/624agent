@@ -28,12 +28,19 @@ from aml_memory.benchmarks.longmemeval import (  # noqa: E402
     iter_longmemeval_cases,
     rank_scored_messages,
 )
-from aml_memory.retrieval import LexicalRetrievalPipeline  # noqa: E402
+from aml_memory.embeddings import FastEmbedEmbedder  # noqa: E402
+from aml_memory.models import EmbeddingBatch  # noqa: E402
+from aml_memory.ports import Embedder  # noqa: E402
+from aml_memory.retrieval import (  # noqa: E402
+    HybridRetrievalPipeline,
+    LexicalRetrievalPipeline,
+)
 from aml_memory.schemas import SearchRequest  # noqa: E402
 from aml_memory.service import MemoryService  # noqa: E402
 from aml_memory.store import MemoryStore  # noqa: E402
 
 RETRIEVAL_DEPTH = 100
+RetrievalMode = Literal["lexical", "local-semantic"]
 
 
 def _sha256(path: Path) -> str:
@@ -112,6 +119,7 @@ def _render_report(summary: Mapping[str, object], cutoffs: Sequence[int]) -> str
         f"- Retrieval cases evaluated: {cases['evaluated']}",
         f"- Abstention cases skipped: {cases['skipped_abstention']}",
         f"- Ingestion mode: `{configuration['ingestion_mode']}`",
+        f"- Retrieval mode: `{configuration['retrieval_mode']}`",
         "- Indexed source roles: both user and assistant turns",
         f"- Retrieval depth: {configuration['retrieval_depth']} turns",
         f"- Global limit: {'none' if limit is None else limit}",
@@ -211,6 +219,8 @@ def run_evaluation(
     limit: int | None = None,
     per_type_limit: int | None = None,
     ingestion_mode: Literal["benchmark-lexical", "full"] = "benchmark-lexical",
+    retrieval_mode: RetrievalMode = "lexical",
+    embedder: Embedder | None = None,
     progress: TextIO = sys.stdout,
 ) -> dict[str, object]:
     normalized_cutoffs = tuple(sorted(set(cutoffs)))
@@ -220,6 +230,13 @@ def run_evaluation(
         raise ValueError("limit must be positive")
     if per_type_limit is not None and per_type_limit < 1:
         raise ValueError("per_type_limit must be positive")
+    if retrieval_mode == "lexical" and embedder is not None:
+        raise ValueError("an embedder requires local-semantic retrieval mode")
+    active_embedder = (
+        embedder or FastEmbedEmbedder()
+        if retrieval_mode == "local-semantic"
+        else None
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     dataset_sha256 = _sha256(data_path)
     all_metrics: list[CaseRetrievalMetrics] = []
@@ -244,14 +261,48 @@ def run_evaluation(
             with TemporaryDirectory(prefix="aml-longmemeval-") as temporary_directory:
                 store = MemoryStore(Path(temporary_directory) / "memory.db")
                 store.initialize()
+                retrieval = (
+                    HybridRetrievalPipeline(
+                        store,
+                        active_embedder,
+                        neighbor_radius=1,
+                    )
+                    if active_embedder is not None
+                    else LexicalRetrievalPipeline(store, neighbor_radius=1)
+                )
                 service = MemoryService(
                     store,
-                    LexicalRetrievalPipeline(store, neighbor_radius=1),
+                    retrieval,
+                    embedder=active_embedder,
                 )
-                for request in plan.requests:
-                    if ingestion_mode == "benchmark-lexical":
-                        store.add_benchmark_lexical(request)
-                    else:
+                if ingestion_mode == "benchmark-lexical":
+                    case_embeddings = None
+                    if active_embedder is not None:
+                        case_embeddings = active_embedder.embed(
+                            [
+                                message.content
+                                for request in plan.requests
+                                for message in request.messages
+                            ]
+                        )
+                    embedding_offset = 0
+                    for request in plan.requests:
+                        request_embeddings = None
+                        if case_embeddings is not None:
+                            next_offset = embedding_offset + len(request.messages)
+                            request_embeddings = EmbeddingBatch(
+                                model=case_embeddings.model,
+                                vectors=case_embeddings.vectors[
+                                    embedding_offset:next_offset
+                                ],
+                            )
+                            embedding_offset = next_offset
+                        store.add_benchmark_lexical(
+                            request,
+                            embeddings=request_embeddings,
+                        )
+                else:
+                    for request in plan.requests:
                         service.add(request)
                 started_at = perf_counter()
                 scored = service.search_scored(
@@ -339,6 +390,10 @@ def run_evaluation(
             "question_ids": sorted(question_ids or set()),
             "question_types": sorted(question_types or set()),
             "ingestion_mode": ingestion_mode,
+            "retrieval_mode": retrieval_mode,
+            "embedding_model": (
+                active_embedder.model if active_embedder is not None else None
+            ),
             "indexed_roles": ["user", "assistant"],
             "retrieval_depth": RETRIEVAL_DEPTH,
             "reader_model": None,
@@ -400,6 +455,12 @@ def main() -> int:
         default="benchmark-lexical",
         help="Use fast raw-source indexing or the complete structured Add path.",
     )
+    parser.add_argument(
+        "--retrieval-mode",
+        choices=("lexical", "local-semantic"),
+        default="lexical",
+        help="Compare lexical retrieval with the allowlisted local semantic model.",
+    )
     args = parser.parse_args()
     run_evaluation(
         args.data,
@@ -410,6 +471,7 @@ def main() -> int:
         limit=args.limit,
         per_type_limit=args.per_type_limit,
         ingestion_mode=args.ingestion_mode,
+        retrieval_mode=args.retrieval_mode,
     )
     return 0
 

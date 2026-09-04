@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Sequence
+from importlib import import_module
+from threading import RLock
 from typing import Any, Protocol, cast
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -22,9 +24,82 @@ class HttpResponse(Protocol):
 
 HttpOpener = Callable[[Request, float], HttpResponse]
 
+DEFAULT_LOCAL_EMBEDDING_MODEL = (
+    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+)
+LOCAL_EMBEDDING_BASE_URL = "local://fastembed"
+
+
+class FastEmbedBackend(Protocol):
+    def embed(self, documents: list[str]) -> Iterable[Sequence[float]]: ...
+
+
+FastEmbedModelFactory = Callable[[str], FastEmbedBackend]
+
 
 def _default_opener(request: Request, timeout: float) -> HttpResponse:
     return cast(HttpResponse, urlopen(request, timeout=timeout))
+
+
+def _default_fastembed_model_factory(model_name: str) -> FastEmbedBackend:
+    try:
+        module = import_module("fastembed")
+        constructor = cast(Callable[..., FastEmbedBackend], module.TextEmbedding)
+    except (ImportError, AttributeError) as error:
+        raise EmbeddingServiceError(
+            "local embedding support is unavailable; install the local extra"
+        ) from error
+    return constructor(model_name=model_name)
+
+
+class FastEmbedEmbedder:
+    """Lazy local embeddings backed by FastEmbed's quantized ONNX runtime."""
+
+    def __init__(
+        self,
+        *,
+        model: str = DEFAULT_LOCAL_EMBEDDING_MODEL,
+        model_factory: FastEmbedModelFactory = _default_fastembed_model_factory,
+    ) -> None:
+        if model != DEFAULT_LOCAL_EMBEDDING_MODEL:
+            raise ValueError("local embedding model is not allowlisted")
+        self.model = model
+        self._model_factory = model_factory
+        self._backend: FastEmbedBackend | None = None
+        self._lock = RLock()
+
+    def embed(self, texts: list[str]) -> EmbeddingBatch:
+        if not texts or any(not text.strip() for text in texts):
+            raise ValueError("embedding inputs must contain non-blank text")
+
+        backend = self._get_backend()
+        try:
+            with self._lock:
+                vectors = tuple(
+                    tuple(float(value) for value in vector)
+                    for vector in backend.embed(texts)
+                )
+            if len(vectors) != len(texts):
+                raise ValueError("local embedding count mismatch")
+            return EmbeddingBatch(model=self.model, vectors=vectors)
+        except EmbeddingServiceError:
+            raise
+        except Exception as error:
+            raise EmbeddingServiceError("local embedding model unavailable") from error
+
+    def _get_backend(self) -> FastEmbedBackend:
+        if self._backend is not None:
+            return self._backend
+        with self._lock:
+            if self._backend is not None:
+                return self._backend
+            try:
+                self._backend = self._model_factory(self.model)
+            except EmbeddingServiceError:
+                raise
+            except Exception as error:
+                raise EmbeddingServiceError("local embedding model unavailable") from error
+            return self._backend
 
 
 class OpenAICompatibleEmbedder:

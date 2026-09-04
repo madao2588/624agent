@@ -954,6 +954,91 @@ def test_rrf_prioritizes_a_candidate_found_by_both_retrievers(tmp_path: Path) ->
     assert results[0].message.content == "shared overlap"
 
 
+def test_hybrid_keeps_exact_evidence_ahead_of_vector_only_noise(tmp_path: Path) -> None:
+    store = MemoryStore(tmp_path / "memory.db")
+    store.initialize()
+    noise = "Quarterly financial planning notes."
+    evidence = "I tried a lavender cocktail recipe last weekend."
+    store.add(
+        AddRequest(
+            request_id="request-vector-noise-vs-exact",
+            user_id="user-1",
+            session_id="session-1",
+            messages=[
+                MessageInput(role="user", content=noise),
+                MessageInput(role="user", content=evidence),
+            ],
+        ),
+        embeddings=EmbeddingBatch(
+            model="semantic-test",
+            vectors=((0.4, 0.916515), (0.1, 0.994987)),
+        ),
+    )
+    query = "What cocktail recipe did I try last weekend?"
+    retrieval = HybridRetrievalPipeline(
+        store,
+        FakeEmbedder({query: (1.0, 0.0)}),
+        neighbor_radius=0,
+    )
+
+    results = retrieval.search(query=query, user_id="user-1", top_k=1)
+
+    assert [result.message.content for result in results] == [evidence]
+
+
+def test_hybrid_keeps_cross_session_entity_bridge_expansion(tmp_path: Path) -> None:
+    store = MemoryStore(tmp_path / "memory.db")
+    store.initialize()
+    colleague = (
+        "Maya asked her coworker Omar for a suggestion about where to go "
+        "on the Atlas project."
+    )
+    recommendation = "Omar recommended Juniper Cafe after visiting it twice."
+    store.add_benchmark_lexical(
+        AddRequest(
+            request_id="request-hybrid-colleague",
+            user_id="user-1",
+            session_id="session-colleague",
+            messages=[MessageInput(role="user", content=colleague)],
+        ),
+        embeddings=EmbeddingBatch(model="semantic-test", vectors=((1.0, 0.0),)),
+    )
+    store.add_benchmark_lexical(
+        AddRequest(
+            request_id="request-hybrid-cafe",
+            user_id="user-1",
+            session_id="session-cafe",
+            messages=[MessageInput(role="user", content=recommendation)],
+        ),
+        embeddings=EmbeddingBatch(model="semantic-test", vectors=((0.0, 1.0),)),
+    )
+    distractors = [f"Maya suggestion topic number {index}." for index in range(8)]
+    store.add_benchmark_lexical(
+        AddRequest(
+            request_id="request-hybrid-bridge-distractors",
+            user_id="user-1",
+            session_id="session-distractors",
+            messages=[MessageInput(role="user", content=text) for text in distractors],
+        ),
+        embeddings=EmbeddingBatch(
+            model="semantic-test",
+            vectors=tuple((0.9, 0.43589) for _text in distractors),
+        ),
+    )
+    query = "Where should Maya go based on her coworker's suggestion?"
+    retrieval = HybridRetrievalPipeline(
+        store,
+        FakeEmbedder({query: (1.0, 0.0)}),
+        neighbor_radius=0,
+    )
+
+    results = retrieval.search(query=query, user_id="user-1", top_k=5)
+
+    contents = {result.message.content for result in results}
+    assert colleague in contents
+    assert recommendation in contents
+
+
 def test_hybrid_vector_path_never_returns_another_users_message(tmp_path: Path) -> None:
     store = MemoryStore(tmp_path / "memory.db")
     store.initialize()

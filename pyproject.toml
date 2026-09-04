@@ -19,6 +19,9 @@ dependencies = [
 aml-eval-preflight = "aml_memory.preflight:main"
 
 [project.optional-dependencies]
+local = [
+  "fastembed==0.8.0",
+]
 dev = [
   "httpx2>=2.12,<3",
   "mypy>=1.17,<2",

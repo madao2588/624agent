@@ -15,6 +15,11 @@ from pydantic import (
     model_validator,
 )
 
+from aml_memory.embeddings import (
+    DEFAULT_LOCAL_EMBEDDING_MODEL,
+    LOCAL_EMBEDDING_BASE_URL,
+)
+
 
 def _require_non_blank(value: str) -> str:
     if not value.strip():
@@ -109,8 +114,8 @@ class SearchDiagnosticsResponse(ContractModel):
 
 
 class RetrievalConnectionCreate(ContractModel):
-    provider: Literal["openai", "openai-compatible", "deepseek"]
-    api_key: SecretStr
+    provider: Literal["local", "openai", "openai-compatible", "deepseek"]
+    api_key: SecretStr | None = None
     model: str | None = None
     base_url: str | None = None
 
@@ -123,12 +128,23 @@ class RetrievalConnectionCreate(ContractModel):
 
     @field_validator("api_key")
     @classmethod
-    def api_key_must_not_be_blank(cls, value: SecretStr) -> SecretStr:
-        _require_non_blank(value.get_secret_value())
+    def api_key_must_not_be_blank(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None:
+            _require_non_blank(value.get_secret_value())
         return value
 
     @model_validator(mode="after")
     def validate_provider_url(self) -> RetrievalConnectionCreate:
+        if self.provider == "local":
+            if self.api_key is not None:
+                raise ValueError("local provider does not accept an API key")
+            if self.base_url is not None:
+                raise ValueError("local provider does not accept a base_url")
+            if self.model not in {None, DEFAULT_LOCAL_EMBEDDING_MODEL}:
+                raise ValueError("local provider uses the allowlisted local model")
+            return self
+        if self.api_key is None:
+            raise ValueError("API key is required for an external provider")
         if self.provider == "openai":
             if self.base_url not in {None, "https://api.openai.com/v1"}:
                 raise ValueError("OpenAI provider uses https://api.openai.com/v1")
@@ -152,6 +168,8 @@ class RetrievalConnectionCreate(ContractModel):
 
     @property
     def resolved_base_url(self) -> str:
+        if self.provider == "local":
+            return LOCAL_EMBEDDING_BASE_URL
         if self.provider == "openai":
             return "https://api.openai.com/v1"
         if self.provider == "deepseek":
@@ -163,6 +181,8 @@ class RetrievalConnectionCreate(ContractModel):
     def resolved_model(self) -> str:
         if self.model is not None:
             return self.model
+        if self.provider == "local":
+            return DEFAULT_LOCAL_EMBEDDING_MODEL
         if self.provider == "deepseek":
             return "deepseek-v4-flash"
         return "text-embedding-3-small"
@@ -173,7 +193,7 @@ EmbeddingConnectionCreate = RetrievalConnectionCreate
 
 class EmbeddingConnectionResponse(ContractModel):
     connection_id: str
-    provider: Literal["openai", "openai-compatible", "deepseek"]
+    provider: Literal["local", "openai", "openai-compatible", "deepseek"]
     model: str
     base_url: str
     expires_at: datetime
@@ -185,7 +205,7 @@ class EmbeddingConnectionDeleteResponse(ContractModel):
 
 class RetrievalConnectionResponse(ContractModel):
     connection_id: str
-    provider: Literal["openai", "openai-compatible", "deepseek"]
+    provider: Literal["local", "openai", "openai-compatible", "deepseek"]
     capability: Literal["embedding", "query-expansion"]
     model: str
     base_url: str

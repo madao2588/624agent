@@ -2,6 +2,7 @@ import json
 import subprocess
 import sys
 from datetime import UTC, datetime
+from io import StringIO
 from pathlib import Path
 
 import pytest
@@ -14,12 +15,31 @@ from aml_memory.benchmarks.longmemeval import (
     iter_longmemeval_cases,
     parse_longmemeval_date,
 )
+from aml_memory.models import EmbeddingBatch
 from aml_memory.retrieval import LexicalRetrievalPipeline
 from aml_memory.schemas import SearchRequest
 from aml_memory.service import MemoryService
 from aml_memory.store import MemoryStore
+from scripts.run_longmemeval import run_evaluation
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "longmemeval_tiny.json"
+
+
+class BenchmarkSemanticEmbedder:
+    model = "benchmark-semantic-test"
+
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+
+    def embed(self, texts: list[str]) -> EmbeddingBatch:
+        self.calls.append(texts)
+        vectors = tuple(
+            (1.0, 0.0)
+            if any(term in text.casefold() for term in ("dog", "pixel", "greyhound"))
+            else (0.0, 1.0)
+            for text in texts
+        )
+        return EmbeddingBatch(model=self.model, vectors=vectors)
 
 
 def test_official_shaped_fixture_streams_without_loading_contract_shortcuts() -> None:
@@ -268,3 +288,22 @@ def test_cli_can_take_a_reproducible_per_type_sample(tmp_path: Path) -> None:
     }
     assert summary["configuration"]["per_type_limit"] == 1
     assert "Per-type limit: 1" in report
+
+
+def test_run_evaluation_can_batch_injected_semantic_embeddings(tmp_path: Path) -> None:
+    embedder = BenchmarkSemanticEmbedder()
+
+    summary = run_evaluation(
+        FIXTURE_PATH,
+        tmp_path,
+        cutoffs=(1, 5),
+        retrieval_mode="local-semantic",
+        embedder=embedder,
+        progress=StringIO(),
+    )
+
+    assert summary["configuration"]["retrieval_mode"] == "local-semantic"
+    assert summary["configuration"]["embedding_model"] == embedder.model
+    assert len(embedder.calls[0]) == 4
+    assert len(embedder.calls[1]) == 1
+    assert summary["metrics"]["session"]["recall_any@1"] == 1.0

@@ -12,7 +12,7 @@ COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 COPY evaluation/evaluation-profile.json ./evaluation/evaluation-profile.json
 
-RUN python -m pip install --no-cache-dir . \
+RUN python -m pip install --no-cache-dir ".[local]" \
     && addgroup --system app \
     && adduser --system --ingroup app --home /app app \
     && mkdir -p /data \

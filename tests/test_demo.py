@@ -44,8 +44,11 @@ def test_demo_page_is_public_accessible_and_not_cached(tmp_path: Path) -> None:
     assert 'id="embedding-base-url"' in page
     assert 'id="connect-embedding"' in page
     assert 'id="disconnect-embedding"' in page
+    assert '>断开检索连接</button>' in page
+    assert '断开并清除 Key' not in page
     assert 'id="remember-api-key"' in page
     assert 'id="key-storage-note"' in page
+    assert 'value="local">本地语义 · 免费' in page
     assert 'value="deepseek"' in page
     assert '/v1/retrieval-connections' in page
     assert '/v1/memories/search/diagnostics' in page
@@ -54,6 +57,11 @@ def test_demo_page_is_public_accessible_and_not_cached(tmp_path: Path) -> None:
     assert 'DeepSeek 双语查询扩展' in page
     assert '没有找到能支持这个问题的记忆。' in page
     assert 'DeepSeek 双语扩展找回' in page
+    assert '约 220 MB' in page
+    assert '记忆正文不会离开这台设备' in page
+    assert '本地模式设置仍保留。' in page
+    assert 'provider === "local"' in page
+    assert 'delete payload.api_key' in page
     assert 'sessionStorage' in page
     assert 'X-Embedding-Connection' in page
     assert 'localStorage' in page

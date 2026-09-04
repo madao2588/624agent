@@ -94,7 +94,7 @@ Python 3.11 or newer is required.
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m pip install -e ".[dev,local]"
 .\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\python.exe -m uvicorn aml_memory.app:app --host 0.0.0.0 --port 8000
 ```
@@ -114,16 +114,21 @@ untouched.
 ### Temporary browser-selected semantic retrieval
 
 The playground starts in free local lexical mode. Open the collapsed
-**Retrieval settings** panel to select DeepSeek, OpenAI, or a custom
-OpenAI-compatible endpoint. **Test and connect** performs one real provider
-probe. Embedding providers switch subsequent Add/Search calls to BM25 + Dense
-fusion. DeepSeek instead expands only each Search question into related terms;
+**Retrieval settings** panel to select free local semantic retrieval, DeepSeek,
+OpenAI, or a custom OpenAI-compatible endpoint. Local semantic retrieval lazily
+downloads the allowlisted quantized multilingual model (about 220 MB) on first
+use and then runs it on this machine without an API key. All temporary local
+connections share one in-process model instance, so opening another tab does
+not load another copy. **Test and connect** performs one real provider probe.
+Embedding providers switch subsequent
+Add/Search calls to BM25 + Dense fusion. DeepSeek instead expands only each Search question into related terms;
 the resulting lexical search remains local and Add never calls DeepSeek. Model
 terms now supplement a partial BM25 match instead of being discarded as soon as
 one local result exists. Supplemental evidence is accepted only from a leading
 matched session or through a source-text entity anchor.
 
-The API key is never written to SQLite, API responses, or application logs. By
+Local semantic text never leaves the machine. External-provider API keys are
+never written to SQLite, API responses, or application logs. By
 default the browser keeps only an opaque connection ID in `sessionStorage`.
 When **Remember this Key in this browser** is selected, the playground also
 stores the selected provider configuration and Key in that browser's
@@ -163,6 +168,12 @@ The former `/v1/embedding-connections` routes and
 `provider: "openai-compatible"` requires an HTTP(S) base URL without embedded
 credentials, query parameters, or fragments. Connect before Add: messages
 written in lexical mode do not have vectors to backfill automatically.
+
+`provider: "local"` accepts neither a key nor a custom URL and uses only
+`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`. This allowlist
+prevents API callers from making the service download arbitrary models or open
+local model paths. Install `.[local]` when running outside the supplied Docker
+image; the image already includes the local runtime.
 
 `provider: "deepseek"` fixes the base URL to `https://api.deepseek.com` and
 defaults to `deepseek-v4-flash`. DeepSeek's public API is used as a language
@@ -217,6 +228,15 @@ Invoke-WebRequest `
   --cutoffs 1,5,10 `
   --per-type-limit 5
 
+# Run the same protocol with the free local multilingual embedding model.
+# The first run downloads the model; long histories take materially longer to index.
+.\.venv\Scripts\python.exe scripts\run_longmemeval.py `
+  --data artifacts\longmemeval\data\longmemeval_s_cleaned.json `
+  --output-dir artifacts\longmemeval\local-semantic-stratified-30 `
+  --cutoffs 1,5,10 `
+  --per-type-limit 5 `
+  --retrieval-mode local-semantic
+
 # Full 500-question corpus. Retrieval metrics exclude the 30 abstention cases.
 .\.venv\Scripts\python.exe scripts\run_longmemeval.py `
   --data artifacts\longmemeval\data\longmemeval_s_cleaned.json `
@@ -227,7 +247,7 @@ Invoke-WebRequest `
 Each run writes one inspectable JSONL record per question plus `summary.json`
 and `report.md`. The report contains session- and turn-level Recall-any,
 Recall-all, and nDCG, including breakdowns for all six question types. It also
-records the dataset SHA-256, filters, ingestion mode, and the fact that no
+records the dataset SHA-256, filters, ingestion and retrieval modes, and the fact that no
 answer reader or LLM judge was used. Each question requests the contract's
 `top_k=100`; @1, @5, and @10 are prefixes of that one ordered result.
 

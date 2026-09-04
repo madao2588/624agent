@@ -14,8 +14,8 @@ from typing import Literal
 from aml_memory.models import EmbeddingBatch
 from aml_memory.ports import Embedder, QueryExpander
 
-EmbeddingProvider = Literal["openai", "openai-compatible"]
-RetrievalProvider = Literal["openai", "openai-compatible", "deepseek"]
+EmbeddingProvider = Literal["local", "openai", "openai-compatible"]
+RetrievalProvider = Literal["local", "openai", "openai-compatible", "deepseek"]
 RetrievalCapability = Literal["embedding", "query-expansion"]
 
 
